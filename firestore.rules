@@ -1,0 +1,83 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // ===============================================================
+    // Assumed Data Model
+    // ===============================================================
+    //
+    // Collection: players
+    // Document ID: string (matches player.id converted to string)
+    // Fields:
+    //   - id: number (required)
+    //   - name: string (required)
+    //
+    // Collection: matches
+    // Document ID: string (matches match.id)
+    // Fields:
+    //   - id: string (required)
+    //   - name: string (required)
+    //   - type: string (required, 'Normal', 'Qualifier', 'Final')
+    //   - entryFee: number (required)
+    //   - totalPool: number (required)
+    //   - predictions: list (required)
+    //   - actualWinner: string (required)
+    //   - winnerId: number or null
+    //   - runnerUpId: number or null
+    //   - prizeWinner: number (required)
+    //   - prizeRunnerUp: number (required)
+    //   - timestamp: number (required)
+    //
+    // ===============================================================
+
+    function isAuthenticated() {
+      return request.auth != null;
+    }
+
+    function isValidPlayer(data) {
+      return data.keys().hasAll(['id', 'name']) &&
+             data.id is number &&
+             data.name is string && data.name.size() > 0 && data.name.size() < 100;
+    }
+
+    function isValidPrediction(pred) {
+      return pred is map &&
+             pred.keys().hasAll(['playerId', 'predictedWinner']) &&
+             pred.playerId is number &&
+             pred.predictedWinner is string && pred.predictedWinner.size() < 100;
+    }
+
+    function areValidPredictions(preds) {
+      return preds is list && preds.size() < 100; // Simplified check for list size
+    }
+
+    function isValidMatch(data) {
+      return data.keys().hasAll(['id', 'name', 'type', 'entryFee', 'totalPool', 'predictions', 'actualWinner', 'prizeWinner', 'prizeRunnerUp', 'timestamp']) &&
+             data.id is string && data.id.size() > 0 && data.id.size() < 100 &&
+             data.name is string && data.name.size() > 0 && data.name.size() < 100 &&
+             data.type in ['Normal', 'Qualifier', 'Final'] &&
+             data.entryFee is number && data.entryFee >= 0 &&
+             data.totalPool is number && data.totalPool >= 0 &&
+             areValidPredictions(data.predictions) &&
+             data.actualWinner is string && data.actualWinner.size() < 100 &&
+             (!('winnerId' in data) || data.winnerId == null || data.winnerId is number) &&
+             (!('runnerUpId' in data) || data.runnerUpId == null || data.runnerUpId is number) &&
+             data.prizeWinner is number && data.prizeWinner >= 0 &&
+             data.prizeRunnerUp is number && data.prizeRunnerUp >= 0 &&
+             data.timestamp is number;
+    }
+
+    match /players/{playerId} {
+      allow read: if isAuthenticated();
+      allow create: if isAuthenticated() && isValidPlayer(request.resource.data);
+      allow update: if isAuthenticated() && isValidPlayer(request.resource.data);
+      allow delete: if isAuthenticated();
+    }
+
+    match /matches/{matchId} {
+      allow read: if isAuthenticated();
+      allow create: if isAuthenticated() && isValidMatch(request.resource.data);
+      allow update: if isAuthenticated() && isValidMatch(request.resource.data);
+      allow delete: if isAuthenticated();
+    }
+  }
+}

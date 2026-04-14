@@ -1,0 +1,96 @@
+{
+  "entities": {
+    "Player": {
+      "title": "Player",
+      "description": "A participant in the contest",
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "number",
+          "description": "Unique identifier for the player"
+        },
+        "name": {
+          "type": "string",
+          "description": "Name of the player"
+        }
+      },
+      "required": ["id", "name"]
+    },
+    "Prediction": {
+      "title": "Prediction",
+      "description": "A player's prediction for a match",
+      "type": "object",
+      "properties": {
+        "playerId": {
+          "type": "number"
+        },
+        "predictedWinner": {
+          "type": "string"
+        }
+      },
+      "required": ["playerId", "predictedWinner"]
+    },
+    "Match": {
+      "title": "Match",
+      "description": "A match in the contest",
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "name": {
+          "type": "string"
+        },
+        "type": {
+          "type": "string",
+          "enum": ["Normal", "Qualifier", "Final"]
+        },
+        "entryFee": {
+          "type": "number"
+        },
+        "totalPool": {
+          "type": "number"
+        },
+        "predictions": {
+          "type": "array",
+          "items": {
+            "$ref": "#/entities/Prediction"
+          }
+        },
+        "actualWinner": {
+          "type": "string"
+        },
+        "winnerId": {
+          "type": ["number", "null"]
+        },
+        "runnerUpId": {
+          "type": ["number", "null"]
+        },
+        "prizeWinner": {
+          "type": "number"
+        },
+        "prizeRunnerUp": {
+          "type": "number"
+        },
+        "timestamp": {
+          "type": "number"
+        }
+      },
+      "required": ["id", "name", "type", "entryFee", "totalPool", "predictions", "actualWinner", "prizeWinner", "prizeRunnerUp", "timestamp"]
+    }
+  },
+  "firestore": {
+    "/players/{playerId}": {
+      "schema": {
+        "$ref": "#/entities/Player"
+      },
+      "description": "Collection of players"
+    },
+    "/matches/{matchId}": {
+      "schema": {
+        "$ref": "#/entities/Match"
+      },
+      "description": "Collection of matches"
+    }
+  }
+}

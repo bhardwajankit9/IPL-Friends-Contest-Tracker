@@ -1,0 +1,6 @@
+{
+  "name": "IPL Friends Contest Tracker",
+  "description": "Track IPL match contests, entry fees, winnings, and leaderboard for a group of 6 friends.",
+  "requestFramePermissions": [],
+  "majorCapabilities": []
+}
