@@ -1,36 +1,18 @@
 rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
-    // ===============================================================
-    // Assumed Data Model
-    // ===============================================================
-    //
-    // Collection: players
-    // Document ID: string (matches player.id converted to string)
-    // Fields:
-    //   - id: number (required)
-    //   - name: string (required)
-    //
-    // Collection: matches
-    // Document ID: string (matches match.id)
-    // Fields:
-    //   - id: string (required)
-    //   - name: string (required)
-    //   - type: string (required, 'Normal', 'Qualifier', 'Final')
-    //   - entryFee: number (required)
-    //   - totalPool: number (required)
-    //   - predictions: list (required)
-    //   - actualWinner: string (required)
-    //   - winnerId: number or null
-    //   - runnerUpId: number or null
-    //   - prizeWinner: number (required)
-    //   - prizeRunnerUp: number (required)
-    //   - timestamp: number (required)
-    //
-    // ===============================================================
 
     function isAuthenticated() {
       return request.auth != null;
+    }
+
+    function isDataOwner(userId) {
+      return isAuthenticated() && request.auth.uid == userId;
+    }
+
+    function hasSharedAccess(userId) {
+      return isAuthenticated() &&
+             exists(/databases/$(database)/documents/users/$(userId)/shared_users/$(request.auth.uid));
     }
 
     function isValidPlayer(data) {
@@ -47,14 +29,14 @@ service cloud.firestore {
     }
 
     function areValidPredictions(preds) {
-      return preds is list && preds.size() < 100; // Simplified check for list size
+      return preds is list && preds.size() < 100;
     }
 
     function isValidMatch(data) {
       return data.keys().hasAll(['id', 'name', 'type', 'entryFee', 'totalPool', 'predictions', 'actualWinner', 'prizeWinner', 'prizeRunnerUp', 'timestamp']) &&
              data.id is string && data.id.size() > 0 && data.id.size() < 100 &&
              data.name is string && data.name.size() > 0 && data.name.size() < 100 &&
-             data.type in ['Normal', 'Qualifier', 'Final'] &&
+             data.type in ['Normal', 'Qualifier', 'Final', 'Custom'] &&
              data.entryFee is number && data.entryFee >= 0 &&
              data.totalPool is number && data.totalPool >= 0 &&
              areValidPredictions(data.predictions) &&
@@ -66,18 +48,30 @@ service cloud.firestore {
              data.timestamp is number;
     }
 
-    match /players/{playerId} {
-      allow read: if isAuthenticated();
-      allow create: if isAuthenticated() && isValidPlayer(request.resource.data);
-      allow update: if isAuthenticated() && isValidPlayer(request.resource.data);
-      allow delete: if isAuthenticated();
+    function isValidSharedUser(data) {
+      return data.keys().hasAll(['id', 'email', 'displayName', 'grantedAt', 'grantedBy']) &&
+             data.id is string && data.id.size() > 0 &&
+             data.email is string && data.email.size() > 0 &&
+             data.displayName is string &&
+             data.grantedAt is number &&
+             data.grantedBy is string && data.grantedBy == request.auth.uid;
     }
 
-    match /matches/{matchId} {
+    // User documents (for shared access checking)
+    match /users/{userId} {
       allow read: if isAuthenticated();
-      allow create: if isAuthenticated() && isValidMatch(request.resource.data);
-      allow update: if isAuthenticated() && isValidMatch(request.resource.data);
-      allow delete: if isAuthenticated();
+      allow write: if isDataOwner(userId);
+    }
+
+    // Shared users collection
+    match /users/{userId}/shared_users/{sharedUserId} {
+      allow read, write: if isDataOwner(userId);
+      allow read: if isAuthenticated() && request.auth.uid == sharedUserId;
+    }
+
+    // Seasons and their subcollections
+    match /users/{userId}/seasons/{seasonId}/{document=**} {
+      allow read, write: if isDataOwner(userId) || hasSharedAccess(userId);
     }
   }
 }
