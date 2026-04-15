@@ -7,99 +7,47 @@ import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { 
   Trophy, 
   Users, 
-  History, 
-  PlusCircle, 
-  Download, 
-  RotateCcw, 
+  X, 
+  Edit2, 
+  Trash2, 
+  Share, 
   TrendingUp, 
-  TrendingDown,
-  X,
-  Edit2,
-  Trash2,
-  Share
+  RotateCcw, 
+  Download,
+  PlusCircle
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { auth, db } from './firebase';
 import { signInWithPopup, GoogleAuthProvider, onAuthStateChanged, User, signOut } from 'firebase/auth';
 import { collection, doc, setDoc, deleteDoc, onSnapshot, query, orderBy, where, getDocs } from 'firebase/firestore';
 
-// --- Types ---
+// Import types and constants
+import { Player, Match, MatchType, SharedUser, OperationType, FirestoreErrorInfo, LeaderboardEntry } from './types';
+import { DEFAULT_PLAYERS, SEASONS, CURRENT_SEASON, IPL_TEAMS, MATCH_TYPES } from './constants';
 
-type MatchType = 'Normal' | 'Qualifier' | 'Final' | 'Custom';
+// Import components
+import { Header } from './components/Header';
+import { SeasonSwitcher } from './components/SeasonSwitcher';
+import { StatsBar } from './components/StatsBar';
+import { MatchForm } from './components/MatchForm';
+import { Leaderboard } from './components/Leaderboard';
+import { MatchHistory } from './components/MatchHistory';
+import { LoadingSpinner, ShimmerCard, ShimmerTableRow, ShimmerMatchHistory } from './components/Shimmer';
 
-interface Player {
-  id: number;
-  name: string;
-}
+// Import utils
+import { calculateLeaderboard } from './utils/calculations';
+import { exportLeaderboardToCSV } from './utils/exportCSV';
+import { shareMatchToWhatsApp } from './utils/whatsappShare';
 
-interface Prediction {
-  playerId: number;
-  predictedWinner: string;
-}
+// Import services
+import { saveUserProfile } from './services/firebaseService';
 
-interface Match {
-  id: string;
-  name: string;
-  type: MatchType;
-  entryFee: number;
-  totalPool: number;
-  predictions: Prediction[];
-  actualWinner: string;
-  winnerId: number | null;
-  runnerUpId: number | null;
-  prizeWinner: number;
-  prizeRunnerUp: number;
-  timestamp: number;
-}
+// Import hooks
+import { useAuth } from './hooks/useAuth';
+import { useDataSharing } from './hooks/useDataSharing';
+import { usePWA } from './hooks/usePWA';
 
-interface LeaderboardEntry {
-  playerId: number;
-  name: string;
-  invested: number;
-  won: number;
-  profit: number;
-  winStreak: number;
-  badges: string[];
-}
-
-interface SharedUser {
-  id: string;
-  email: string;
-  displayName: string;
-  grantedAt: number;
-  grantedBy: string;
-}
-
-// --- Constants ---
-
-enum OperationType {
-  CREATE = 'create',
-  UPDATE = 'update',
-  DELETE = 'delete',
-  LIST = 'list',
-  GET = 'get',
-  WRITE = 'write',
-}
-
-interface FirestoreErrorInfo {
-  error: string;
-  operationType: OperationType;
-  path: string | null;
-  authInfo: {
-    userId: string | undefined;
-    email: string | null | undefined;
-    emailVerified: boolean | undefined;
-    isAnonymous: boolean | undefined;
-    tenantId: string | null | undefined;
-    providerInfo: {
-      providerId: string;
-      displayName: string | null;
-      email: string | null;
-      photoUrl: string | null;
-    }[];
-  }
-}
-
+// Error handler
 function handleFirestoreError(error: unknown, operationType: OperationType, path: string | null) {
   const errInfo: FirestoreErrorInfo = {
     error: error instanceof Error ? error.message : String(error),
@@ -123,83 +71,9 @@ function handleFirestoreError(error: unknown, operationType: OperationType, path
   throw new Error(JSON.stringify(errInfo));
 }
 
-const DEFAULT_PLAYERS: Player[] = [
-  { id: 1, name: 'Ankit' },
-  { id: 2, name: 'Sumit Baghel' },
-  { id: 3, name: 'Nachiket' },
-  { id: 4, name: 'Guru' },
-  { id: 5, name: 'Pramod Patil' },
-];
-
-const SEASONS = ['IPL 2024', 'IPL 2025', 'IPL 2026'];
-const CURRENT_SEASON = 'IPL 2026';
-
-// IPL Teams
-const IPL_TEAMS = [
-  'CSK', 'MI', 'RCB', 'KKR', 'SRH', 'DC', 'PBKS', 'RR', 'LSG', 'GT'
-];
-
-// Fee Options
-const MATCH_TYPES: { type: MatchType; fee: number }[] = [
-  { type: 'Normal', fee: 20 },
-  { type: 'Qualifier', fee: 50 },
-  { type: 'Final', fee: 100 },
-];
-
-// --- Shimmer/Skeleton Components ---
-
-const ShimmerCard = ({ className = "" }: { className?: string }) => (
-  <div className={`glass-card p-5 animate-pulse ${className}`}>
-    <div className="flex items-center gap-3">
-      <div className="w-10 h-10 bg-surface-bright rounded-full"></div>
-      <div className="flex-1">
-        <div className="h-4 bg-surface-bright rounded mb-2"></div>
-        <div className="h-3 bg-surface-bright rounded w-2/3"></div>
-      </div>
-    </div>
-  </div>
-);
-
-const ShimmerTableRow = () => (
-  <tr className="animate-pulse">
-    <td className="py-4">
-      <div className="flex items-center gap-4">
-        <div className="w-4 h-4 bg-surface-bright rounded"></div>
-        <div className="w-8 h-8 bg-surface-bright rounded-full"></div>
-        <div className="h-4 bg-surface-bright rounded w-24"></div>
-      </div>
-    </td>
-    <td className="py-4"><div className="h-4 bg-surface-bright rounded w-16"></div></td>
-    <td className="py-4"><div className="h-4 bg-surface-bright rounded w-16"></div></td>
-    <td className="py-4 text-right"><div className="h-4 bg-surface-bright rounded w-20 ml-auto"></div></td>
-  </tr>
-);
-
-const ShimmerMatchHistory = () => (
-  <div className="space-y-3">
-    {[1, 2, 3].map(i => (
-      <div key={i} className="flex flex-col py-3 border-b border-outline-variant/30 last:border-0 animate-pulse">
-        <div className="flex justify-between items-center mb-2">
-          <div className="h-4 bg-surface-bright rounded w-20"></div>
-          <div className="h-4 bg-surface-bright rounded w-24"></div>
-          <div className="w-6 h-6 bg-surface-bright rounded-full"></div>
-        </div>
-        <div className="flex justify-end gap-2">
-          <div className="w-6 h-6 bg-surface-bright rounded"></div>
-          <div className="w-6 h-6 bg-surface-bright rounded"></div>
-        </div>
-      </div>
-    ))}
-  </div>
-);
-
-const LoadingSpinner = ({ size = "w-4 h-4" }: { size?: string }) => (
-  <div className={`${size} border-2 border-primary/30 border-t-primary rounded-full animate-spin`}></div>
-);
-
-// --- Components ---
-
 export default function App() {
+  console.log('🚀 APP STARTED - IPL Friends Contest Tracker loaded');
+  
   // --- State ---
   const [user, setUser] = useState<User | null>(null);
   const [isAuthReady, setIsAuthReady] = useState(false);
@@ -210,6 +84,7 @@ export default function App() {
   const [matches, setMatches] = useState<Match[]>([]);
   const [isLoadingPlayers, setIsLoadingPlayers] = useState(false);
   const [isLoadingMatches, setIsLoadingMatches] = useState(false);
+  const [isSwitchingSeason, setIsSwitchingSeason] = useState(false);
 
   const [isAddingMatch, setIsAddingMatch] = useState(false);
   const [isEditingPlayers, setIsEditingPlayers] = useState(false);
@@ -221,6 +96,7 @@ export default function App() {
   const [editingPlayerId, setEditingPlayerId] = useState<number | null>(null);
   const [removingPlayerId, setRemovingPlayerId] = useState<number | null>(null);
   const [resettingData, setResettingData] = useState(false);
+  const [isAddingPlayer, setIsAddingPlayer] = useState(false);
   
   // Scroll position management
   const matchHistoryRef = useRef<HTMLDivElement>(null);
@@ -230,12 +106,13 @@ export default function App() {
   const [deferredPrompt, setDeferredPrompt] = useState<any>(null);
   const [isInstallable, setIsInstallable] = useState(false);
   
-  // Data sharing
-  const [sharedUsers, setSharedUsers] = useState<SharedUser[]>([]);
-  const [dataOwner, setDataOwner] = useState<User | null>(null);
+  // Data sharing - use custom hooks
+  const { dataOwner } = useAuth(isAuthReady, user);
+  const { sharedUsers, availableUsers } = useDataSharing(user, dataOwner);
   const [isManagingShares, setIsManagingShares] = useState(false);
   const [newShareEmail, setNewShareEmail] = useState('');
-  const [availableUsers, setAvailableUsers] = useState<Array<{id: string, email: string, displayName: string}>>([]);
+  const [sharedUsersState, setSharedUsers] = useState<SharedUser[]>([]);
+  const [availableUsersState, setAvailableUsers] = useState<Array<{id: string, email: string, displayName: string}>>([]);
   
   // Current Match Entry State
   const [teamA, setTeamA] = useState<string>('');
@@ -291,9 +168,20 @@ export default function App() {
 
   // --- Effects ---
   useEffect(() => {
-    const unsubscribe = onAuthStateChanged(auth, (currentUser) => {
+    console.log('🔐 Setting up auth listener');
+    const unsubscribe = onAuthStateChanged(auth, async (currentUser) => {
+      console.log('🔐 Auth state changed - user:', currentUser?.email || 'null');
       setUser(currentUser);
       setIsAuthReady(true);
+      
+      // Save/update user profile in Firestore on every login
+      if (currentUser) {
+        try {
+          await saveUserProfile(currentUser);
+        } catch (error) {
+          console.error('Failed to save user profile:', error);
+        }
+      }
     });
     return () => unsubscribe();
   }, []);
@@ -321,82 +209,11 @@ export default function App() {
     }
   }, [user]);
 
-  // Check for shared access and load appropriate data
+  // Sync hook data to local state for backward compatibility
   useEffect(() => {
-    if (!isAuthReady || !user) {
-      setDataOwner(null);
-      setSharedUsers([]);
-      return;
-    }
-
-    const checkSharedAccess = async () => {
-      try {
-        // First, check if current user has shared access to any other user's data
-        const sharedAccessQuery = query(
-          collection(db, 'users'),
-          where('shared_users', 'array-contains', user.uid)
-        );
-        
-        const sharedAccessSnapshot = await getDocs(sharedAccessQuery);
-        
-        if (!sharedAccessSnapshot.empty) {
-          // User has shared access - use the first sharer's data
-          const sharerDoc = sharedAccessSnapshot.docs[0];
-          const sharerData = sharerDoc.data();
-          
-          // Get sharer user info
-          const sharerUser = {
-            uid: sharerDoc.id,
-            email: sharerData.email || null,
-            displayName: sharerData.displayName || null,
-            photoURL: sharerData.photoURL || null,
-          } as User;
-          
-          setDataOwner(sharerUser);
-        } else {
-          // User is the data owner
-          setDataOwner(user);
-        }
-
-        // Load shared users list (only if user is the data owner)
-        if (dataOwner?.uid === user.uid) {
-          const sharedUsersQuery = query(collection(db, 'users', user.uid, 'shared_users'));
-          const sharedUsersSnapshot = await getDocs(sharedUsersQuery);
-          
-          const sharedUsersList: SharedUser[] = [];
-          sharedUsersSnapshot.forEach((doc) => {
-            sharedUsersList.push(doc.data() as SharedUser);
-          });
-          
-          setSharedUsers(sharedUsersList);
-
-          // Load available users for sharing
-          const allUsersSnapshot = await getDocs(collection(db, 'users'));
-          const availableUsersList: Array<{id: string, email: string, displayName: string}> = [];
-          
-          allUsersSnapshot.forEach((doc) => {
-            const data = doc.data();
-            if (doc.id !== user.uid && data.email) { // Exclude current user
-              availableUsersList.push({
-                id: doc.id,
-                email: data.email,
-                displayName: data.displayName || data.email
-              });
-            }
-          });
-          
-          setAvailableUsers(availableUsersList);
-        }
-      } catch (error) {
-        console.error('Error checking shared access:', error);
-        setDataOwner(user); // Default to own data
-      }
-    };
-
-    checkSharedAccess();
-  }, [isAuthReady, user, dataOwner]);
-
-  // PWA install prompt
+    setSharedUsers(sharedUsers);
+    setAvailableUsers(availableUsers);
+  }, [sharedUsers, availableUsers]);
 
   // PWA install prompt
   useEffect(() => {
@@ -431,6 +248,10 @@ export default function App() {
       return;
     }
     
+    console.log('📊 [loadData] Loading data for season:', currentSeason);
+    console.log('📊 [loadData] Current user:', user.email, 'uid:', user.uid);
+    console.log('📊 [loadData] Data owner:', dataOwner.email, 'uid:', dataOwner.uid);
+    
     // Reset to defaults while the new season data loads from Firestore
     setPlayers(DEFAULT_PLAYERS);
     setMatches([]);
@@ -438,13 +259,24 @@ export default function App() {
     setIsLoadingMatches(true);
 
     const dataOwnerId = dataOwner.uid;
+    const playersPath = `users/${dataOwnerId}/seasons/${currentSeason}/players`;
+    const matchesPath = `users/${dataOwnerId}/seasons/${currentSeason}/matches`;
+    
+    console.log('📂 [loadData] Players path:', playersPath);
+    console.log('📂 [loadData] Matches path:', matchesPath);
 
     const unsubscribePlayers = onSnapshot(collection(db, 'users', dataOwnerId, 'seasons', currentSeason, 'players'), (snapshot) => {
+      console.log('✅ [loadData] Players snapshot received, size:', snapshot.size);
       const loadedPlayers: Player[] = [];
-      snapshot.forEach((doc) => loadedPlayers.push(doc.data() as Player));
+      snapshot.forEach((doc) => {
+        console.log('  📝 Player doc:', doc.id, doc.data());
+        loadedPlayers.push(doc.data() as Player);
+      });
       if (loadedPlayers.length > 0) {
+        console.log('✅ [loadData] Loaded', loadedPlayers.length, 'players');
         setPlayers(loadedPlayers);
       } else {
+        console.log('ℹ️ [loadData] No players found, using defaults');
         // Show defaults immediately in UI
         setPlayers(DEFAULT_PLAYERS);
         // Try to persist to Firestore (may fail if rules not deployed yet)
@@ -455,7 +287,7 @@ export default function App() {
       }
       setIsLoadingPlayers(false);
     }, (error) => {
-      console.error("Error loading players:", error);
+      console.error("❌ [loadData] Error loading players:", error);
       // Non-fatal: fall back to DEFAULT_PLAYERS so UI is usable
       setPlayers(DEFAULT_PLAYERS);
       setIsLoadingPlayers(false);
@@ -463,12 +295,17 @@ export default function App() {
 
     const q = query(collection(db, 'users', dataOwnerId, 'seasons', currentSeason, 'matches'), orderBy('timestamp', 'desc'));
     const unsubscribeMatches = onSnapshot(q, (snapshot) => {
+      console.log('✅ [loadData] Matches snapshot received, size:', snapshot.size);
       const loadedMatches: Match[] = [];
-      snapshot.forEach((doc) => loadedMatches.push(doc.data() as Match));
+      snapshot.forEach((doc) => {
+        console.log('  📝 Match doc:', doc.id);
+        loadedMatches.push(doc.data() as Match);
+      });
+      console.log('✅ [loadData] Loaded', loadedMatches.length, 'matches');
       setMatches(loadedMatches);
       setIsLoadingMatches(false);
     }, (error) => {
-      console.error("Error loading matches:", error);
+      console.error("❌ [loadData] Error loading matches:", error);
       // Non-fatal: matches stay empty
       setIsLoadingMatches(false);
     });
@@ -478,6 +315,13 @@ export default function App() {
       unsubscribeMatches();
     };
   }, [isAuthReady, user, dataOwner, currentSeason]);
+
+  // Clear switching season state when data is loaded
+  useEffect(() => {
+    if (!isLoadingPlayers && !isLoadingMatches) {
+      setIsSwitchingSeason(false);
+    }
+  }, [isLoadingPlayers, isLoadingMatches]);
 
   // Scroll position management for match history
   useEffect(() => {
@@ -521,85 +365,10 @@ export default function App() {
   const derivedWinner = useMemo(() => players.find(p => p.id === winnerPlayerId) || null, [players, winnerPlayerId]);
   const derivedRunnerUp = useMemo(() => players.find(p => p.id === runnerUpPlayerId) || null, [players, runnerUpPlayerId]);
 
-  const leaderboard = useMemo(() => {
-    const board: Record<number, LeaderboardEntry> = {};
-    players.forEach(p => {
-      board[p.id] = {
-        playerId: p.id,
-        name: p.name,
-        invested: 0,
-        won: 0,
-        profit: 0,
-        winStreak: 0,
-        badges: []
-      };
-    });
-
-    matches.forEach(m => {
-      // Calculate investment only for participating players
-      m.predictions.forEach(pred => {
-        if (board[pred.playerId]) {
-          board[pred.playerId].invested += m.entryFee;
-        }
-      });
-
-      // Add winnings if the winner/runner-up is still in the current player list
-      if (m.winnerId && board[m.winnerId]) {
-        board[m.winnerId].won += m.prizeWinner;
-      }
-      if (m.runnerUpId && board[m.runnerUpId]) {
-        board[m.runnerUpId].won += m.prizeRunnerUp;
-      }
-    });
-
-    // Calculate win streaks and badges
-    const sortedMatches = [...matches].sort((a, b) => b.timestamp - a.timestamp); // Most recent first
-    
-    Object.values(board).forEach(entry => {
-      entry.profit = entry.won - entry.invested;
-      
-      // Calculate win streak
-      let streak = 0;
-      for (const match of sortedMatches) {
-        if (match.winnerId === entry.playerId) {
-          streak++;
-        } else if (match.predictions.some(p => p.playerId === entry.playerId)) {
-          // Player participated but didn't win, break streak
-          break;
-        }
-      }
-      entry.winStreak = streak;
-      
-      // Calculate badges
-      const totalWins = matches.filter(m => m.winnerId === entry.playerId).length;
-      const totalMatches = matches.filter(m => m.predictions.some(p => p.playerId === entry.playerId)).length;
-      const winRate = totalMatches > 0 ? totalWins / totalMatches : 0;
-      
-      // Most Wins badge
-      if (totalWins === Math.max(...Object.values(board).map(e => 
-        matches.filter(m => m.winnerId === e.playerId).length
-      ))) {
-        entry.badges.push('Most Wins');
-      }
-      
-      // On a Roll badge (win streak >= 3)
-      if (entry.winStreak >= 3) {
-        entry.badges.push('On a Roll');
-      }
-      
-      // Comeback King badge (high win rate after losses)
-      if (winRate >= 0.6 && totalMatches >= 5) {
-        entry.badges.push('Comeback King');
-      }
-      
-      // Champion badge (highest profit)
-      if (entry.profit === Math.max(...Object.values(board).map(e => e.profit))) {
-        entry.badges.push('Champion');
-      }
-    });
-
-    return Object.values(board).sort((a, b) => b.profit - a.profit);
-  }, [players, matches]);
+  // Calculate leaderboard using imported utility
+  const leaderboard = useMemo(() => 
+    calculateLeaderboard(players, matches),
+  [players, matches]);
 
   // --- Handlers ---
   const handleAddMatch = async () => {
@@ -675,6 +444,7 @@ export default function App() {
   };
 
   const handleSeasonChange = (season: string) => {
+    setIsSwitchingSeason(true);
     setCurrentSeason(season);
     setIsLoadingPlayers(true);
     setIsLoadingMatches(true);
@@ -749,20 +519,25 @@ export default function App() {
     // Find biggest winner (highest profit)
     const biggestWinner = leaderboard.length > 0 ? leaderboard[0] : null;
 
-    // Find most active player (most matches participated in)
-    const playerParticipation = players.map(player => {
-      const playerMatches = matches.filter(match =>
-        match.predictions.some(pred => pred.playerId === player.id)
-      );
+    // Find win rate champion (highest win percentage, minimum 3 matches)
+    const playerWinRates = players.map(player => {
+      const playerEntry = leaderboard.find(entry => entry.id === player.id);
+      const matchesPlayed = playerEntry?.matchesPlayed || 0;
+      const wins = playerEntry?.wins || 0;
+      const winRate = matchesPlayed >= 3 ? (wins / matchesPlayed) * 100 : 0;
+      
       return {
-        ...player,
-        matchCount: playerMatches.length
+        id: player.id,
+        name: player.name,
+        winRate: winRate,
+        matchesPlayed: matchesPlayed,
+        wins: wins
       };
-    });
+    }).filter(player => player.matchesPlayed >= 3);
 
-    const mostActivePlayer = playerParticipation.length > 0
-      ? playerParticipation.reduce((max, player) =>
-          player.matchCount > max.matchCount ? player : max
+    const winRateChampion = playerWinRates.length > 0
+      ? playerWinRates.reduce((max, player) =>
+          player.winRate > max.winRate ? player : max
         )
       : null;
 
@@ -770,7 +545,7 @@ export default function App() {
       totalMatches,
       totalPoolMoney,
       biggestWinner,
-      mostActivePlayer
+      winRateChampion
     };
   }, [matches, leaderboard, players]);
 
@@ -838,60 +613,11 @@ export default function App() {
     }, `Reset ${currentSeason} Data`);
   };
 
-  const exportCSV = () => {
-    const headers = ['Player Name', 'Total Invested', 'Total Won', 'Win Streak', 'Badges', 'Net Profit/Loss'];
-    const rows = leaderboard.map(e => [e.name, e.invested, e.won, e.winStreak, e.badges.join('; '), e.profit]);
-    
-    const csvContent = [
-      headers.join(','),
-      ...rows.map(r => r.join(','))
-    ].join('\n');
+  // Export CSV using utility function
+  const exportCSV = () => exportLeaderboardToCSV(leaderboard);
 
-    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
-    const link = document.createElement('a');
-    const url = URL.createObjectURL(blob);
-    link.setAttribute('href', url);
-    link.setAttribute('download', `ipl_leaderboard_${new Date().toLocaleDateString()}.csv`);
-    link.style.visibility = 'hidden';
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
-  };
-
-  const shareMatchToWhatsApp = (match: Match) => {
-    const winner = players.find(p => p.id === match.winnerId);
-    const runnerUp = players.find(p => p.id === match.runnerUpId);
-    
-    const predictions = match.predictions.map(pred => {
-      const player = players.find(p => p.id === pred.playerId);
-      return `${player?.name || 'Unknown'}: ${pred.predictedWinner}`;
-    }).join('\n');
-
-    const message = `🏆 IPL Contest Result 🏆
-
-Match: ${match.name}
-Date: ${new Date(match.timestamp).toLocaleDateString('en-IN', { 
-  day: 'numeric', 
-  month: 'short', 
-  year: 'numeric',
-  hour: '2-digit',
-  minute: '2-digit'
-})}
-
-Entry Fee: ₹${match.entryFee}
-Total Pool: ₹${match.totalPool}
-
-${match.winnerId ? `🏅 Winner: ${winner?.name || 'Unknown'} (₹${match.prizeWinner})` : '❌ No winner declared'}
-${match.runnerUpId ? `🥈 Runner-up: ${runnerUp?.name || 'Unknown'} (₹${match.prizeRunnerUp})` : ''}
-
-Predictions:
-${predictions}
-
-📊 Check out more results at Arena Prime!`;
-
-    const whatsappUrl = `https://wa.me/?text=${encodeURIComponent(message)}`;
-    window.open(whatsappUrl, '_blank');
-  };
+  // Share match using utility function  
+  const handleShareMatch = (match: Match) => shareMatchToWhatsApp(match, players);
 
   const handleInstallPWA = async () => {
     if (!deferredPrompt) return;
@@ -915,17 +641,23 @@ ${predictions}
     }
 
     try {
-      console.log('Sharing data with user:', targetUserId);
+      console.log('🔄 [shareData] Starting data share process');
+      console.log('🔄 [shareData] From user:', user.email, 'uid:', user.uid);
+      console.log('🔄 [shareData] To user ID:', targetUserId);
       
       // Find user data
       const targetUserInfo = availableUsers.find(u => u.id === targetUserId);
       if (!targetUserInfo) {
+        console.error('❌ [shareData] Target user not found in availableUsers');
         showAlert('User not found.');
         return;
       }
 
+      console.log('✅ [shareData] Target user found:', targetUserInfo.email);
+
       // Check if already shared
       if (sharedUsers.some(su => su.id === targetUserId)) {
+        console.log('⚠️ [shareData] Already shared with this user');
         showAlert('Data access already granted to this user.');
         return;
       }
@@ -939,13 +671,21 @@ ${predictions}
         grantedBy: user.uid
       };
 
+      const docPath = `users/${user.uid}/shared_users/${targetUserId}`;
+      console.log('📝 [shareData] Writing to path:', docPath);
+      console.log('📝 [shareData] Document data:', sharedUser);
+
       await setDoc(doc(db, 'users', user.uid, 'shared_users', targetUserId), sharedUser);
+
+      console.log('✅ [shareData] Successfully wrote shared user document');
 
       // Update local state
       setSharedUsers(prev => [...prev, sharedUser]);
       showAlert(`Data access granted to ${sharedUser.displayName || sharedUser.email}`);
+      
+      console.log('✅ [shareData] Data sharing completed successfully');
     } catch (error) {
-      console.error('Error sharing data:', error);
+      console.error('❌ [shareData] Error sharing data:', error);
       showAlert('Failed to share data. Please try again.');
     }
   };
@@ -980,6 +720,7 @@ ${predictions}
 
   const addNewPlayer = async (fromModal = false) => {
     if (!newPlayerName.trim()) return;
+    setIsAddingPlayer(true);
     const newPlayer: Player = {
       id: Date.now(),
       name: newPlayerName.trim()
@@ -997,6 +738,8 @@ ${predictions}
     } catch (error) {
       console.warn('Failed to persist new player to Firestore (check rules):', error);
       showAlert('Player added locally, but could not save to cloud. Check Firestore rules in Firebase Console.');
+    } finally {
+      setIsAddingPlayer(false);
     }
   };
 
@@ -1211,16 +954,21 @@ ${predictions}
                 animate={{ opacity: 1, y: 0 }}
                 transition={{ delay: 0.4 }}
                 className="glass-card p-6 text-center cursor-pointer hover:bg-secondary/5 transition-colors"
-                onClick={() => seasonSummaryStats.mostActivePlayer && openPlayerProfile(seasonSummaryStats.mostActivePlayer.id)}
+                onClick={() => seasonSummaryStats.winRateChampion && openPlayerProfile(seasonSummaryStats.winRateChampion.id)}
                 title="Click to view player profile"
               >
                 <div className="w-12 h-12 bg-secondary/10 rounded-full flex items-center justify-center mx-auto mb-3">
-                  <Users className="w-6 h-6 text-secondary" />
+                  <Trophy className="w-6 h-6 text-secondary" />
                 </div>
-                <div className="text-lg font-black text-secondary mb-1 truncate" title={seasonSummaryStats.mostActivePlayer?.name || 'N/A'}>
-                  {seasonSummaryStats.mostActivePlayer?.name || 'N/A'}
+                <div className="text-lg font-black text-secondary mb-1 truncate" title={seasonSummaryStats.winRateChampion?.name || 'N/A'}>
+                  {seasonSummaryStats.winRateChampion?.name || 'N/A'}
                 </div>
-                <div className="text-xs font-bold text-on-surface-variant uppercase tracking-widest">Most Active</div>
+                <div className="text-xs font-bold text-on-surface-variant uppercase tracking-widest mb-1">Win Rate Champion</div>
+                {seasonSummaryStats.winRateChampion && (
+                  <div className="text-sm font-black text-secondary">
+                    {seasonSummaryStats.winRateChampion.winRate.toFixed(0)}% ({seasonSummaryStats.winRateChampion.matchesPlayed} games)
+                  </div>
+                )}
               </motion.div>
             </div>
           </div>
@@ -1245,9 +993,10 @@ ${predictions}
               <button 
                 onClick={handleSignIn}
                 disabled={isSigningIn}
-                className="btn-primary py-4 px-10 text-lg shadow-lg shadow-primary/20 disabled:opacity-60"
+                className="btn-primary py-4 px-10 text-lg shadow-lg shadow-primary/20 disabled:opacity-60 flex items-center justify-center gap-3"
               >
-                {isSigningIn ? 'Opening Google Sign-In...' : 'Sign In with Google'}
+                {isSigningIn && <LoadingSpinner size="w-5 h-5" />}
+                {isSigningIn ? 'Signing In...' : 'Sign In with Google'}
               </button>
 
               <p className="text-on-surface-variant text-xs mt-2">
@@ -1638,7 +1387,7 @@ ${predictions}
                           </div>
                           <div className="flex justify-end gap-2">
                             <button 
-                              onClick={() => shareMatchToWhatsApp(match)}
+                              onClick={() => handleShareMatch(match)}
                               className="p-2 rounded-md bg-green-500/10 text-green-600 hover:bg-green-500/20 hover:text-green-700 transition-colors"
                               title="Share on WhatsApp"
                             >
@@ -1739,13 +1488,22 @@ ${predictions}
                     value={newPlayerName}
                     onChange={(e) => setNewPlayerName(e.target.value)}
                     className="flex-1 input-field"
-                    onKeyDown={(e) => e.key === 'Enter' && addNewPlayer()}
+                    onKeyDown={(e) => e.key === 'Enter' && !isAddingPlayer && addNewPlayer()}
+                    disabled={isAddingPlayer}
                   />
                   <button 
                     onClick={() => addNewPlayer()}
-                    className="btn-primary py-2 px-4"
+                    disabled={isAddingPlayer}
+                    className="btn-primary py-2 px-4 min-w-[80px] disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
                   >
-                    Add
+                    {isAddingPlayer ? (
+                      <>
+                        <LoadingSpinner size="w-4 h-4" />
+                        <span>Adding...</span>
+                      </>
+                    ) : (
+                      'Add'
+                    )}
                   </button>
                 </div>
                 <button 
@@ -2196,6 +1954,26 @@ ${predictions}
               </div>
             </motion.div>
           </div>
+        )}
+      </AnimatePresence>
+
+      {/* Season Switching Loading Overlay */}
+      <AnimatePresence>
+        {isSwitchingSeason && (isLoadingPlayers || isLoadingMatches) && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="fixed inset-0 z-[60] flex items-center justify-center bg-background/70 backdrop-blur-md"
+          >
+            <div className="glass-panel p-8 flex flex-col items-center gap-4">
+              <LoadingSpinner size="w-12 h-12" />
+              <div className="text-center">
+                <h3 className="text-xl font-bold font-display mb-2">Switching Season</h3>
+                <p className="text-on-surface-variant text-sm">Loading {currentSeason} data...</p>
+              </div>
+            </div>
+          </motion.div>
         )}
       </AnimatePresence>
 
