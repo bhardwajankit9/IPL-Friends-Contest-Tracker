@@ -128,6 +128,7 @@ export default function App() {
   const [isAddingNewPlayerInModal, setIsAddingNewPlayerInModal] = useState(false);
   const [editingMatchId, setEditingMatchId] = useState<string | null>(null);
   const [currentSeason, setCurrentSeason] = useState<string>(CURRENT_SEASON);
+  const [matchDate, setMatchDate] = useState<string>(new Date().toISOString().slice(0,10));
   
   // Custom Alert/Confirm State
   const [alertConfig, setAlertConfig] = useState<{ show: boolean; message: string; title?: string; onConfirm?: () => void; isConfirm?: boolean }>({
@@ -355,7 +356,7 @@ export default function App() {
 
   // --- Calculations ---
   const currentTypeConfig = useMemo(() =>
-    MATCH_TYPES.find(t => t.type === matchType)!,
+    MATCH_TYPES.find(t => t.type === matchType) ?? { type: matchType, fee: 0 },
   [matchType]);
 
   const currentEntryFee = useMemo(() =>
@@ -395,32 +396,40 @@ export default function App() {
       return;
     }
 
-    if (selectedPlayerIds.length < 2) {
-      showAlert('Please select at least two players.');
-      return;
-    }
+    // Validation for non-tie matches only
+    if (matchType !== 'Tie') {
+      if (selectedPlayerIds.length < 2) {
+        showAlert('Please select at least two players.');
+        return;
+      }
 
-    if (winnerPlayerId && runnerUpPlayerId && winnerPlayerId === runnerUpPlayerId) {
-      showAlert('Winner and Runner-up cannot be the same person.');
-      return;
+      if (winnerPlayerId && runnerUpPlayerId && winnerPlayerId === runnerUpPlayerId) {
+        showAlert('Winner and Runner-up cannot be the same person.');
+        return;
+      }
     }
 
     const participatingPlayers = players.filter(p => selectedPlayerIds.includes(p.id));
     const matchName = `${teamA} vs ${teamB}`;
 
+    const selectedTimestamp = matchDate ? new Date(matchDate).getTime() : (editingMatchId ? (matches.find(m => m.id === editingMatchId)?.timestamp || Date.now()) : Date.now());
+
+    const isTieMatch = matchType === 'Tie';
+
     const newMatch: Match = {
       id: editingMatchId || Date.now().toString(),
       name: matchName,
-      type: feeMode === 'preset' ? matchType : 'Custom',
-      entryFee: currentEntryFee,
-      totalPool: currentEntryFee * selectedPlayerIds.length,
-      predictions: participatingPlayers.map(p => ({ playerId: p.id, predictedWinner: '' })),
+      type: matchType,
+      entryFee: isTieMatch ? 0 : currentEntryFee,
+      totalPool: isTieMatch ? 0 : currentEntryFee * selectedPlayerIds.length,
+      predictions: isTieMatch ? [] : participatingPlayers.map(p => ({ playerId: p.id, predictedWinner: '' })),
       actualWinner: '',
-      winnerId: winnerPlayerId,
-      runnerUpId: runnerUpPlayerId,
-      prizeWinner: winnerPlayerId ? currentWinnerPrize : 0,
-      prizeRunnerUp: runnerUpPlayerId ? currentRunnerUpPrize : 0,
-      timestamp: editingMatchId ? (matches.find(m => m.id === editingMatchId)?.timestamp || Date.now()) : Date.now()
+      winnerId: isTieMatch ? null : winnerPlayerId,
+      runnerUpId: isTieMatch ? null : runnerUpPlayerId,
+      isTie: isTieMatch,
+      prizeWinner: isTieMatch ? 0 : (winnerPlayerId ? currentWinnerPrize : 0),
+      prizeRunnerUp: isTieMatch ? 0 : (runnerUpPlayerId ? currentRunnerUpPrize : 0),
+      timestamp: selectedTimestamp
     };
 
     try {
@@ -449,6 +458,7 @@ export default function App() {
     setSelectedPlayerIds([]);
     setIsAddingNewPlayerInModal(false);
     setEditingMatchId(null);
+    setMatchDate(new Date().toISOString().slice(0,10));
   };
 
   const handleSeasonChange = (season: string) => {
@@ -549,11 +559,18 @@ export default function App() {
         )
       : null;
 
+    const tieMatchCount = matches.filter(m => m.isTie || m.type === 'Tie').length;
+    const recentTieMatch = matches
+      .filter(m => m.isTie || m.type === 'Tie')
+      .sort((a, b) => b.timestamp - a.timestamp)[0] ?? null;
+
     return {
       totalMatches,
       totalPoolMoney,
       biggestWinner,
-      winRateChampion
+      winRateChampion,
+      tieMatchCount,
+      recentTieMatch
     };
   }, [matches, leaderboard, players]);
 
@@ -578,6 +595,12 @@ export default function App() {
     setSelectedPlayerIds(match.predictions.map(p => p.playerId));
     setWinnerPlayerId(match.winnerId);
     setRunnerUpPlayerId(match.runnerUpId);
+    // Populate match date from timestamp
+    try {
+      setMatchDate(new Date(match.timestamp).toISOString().slice(0,10));
+    } catch (e) {
+      setMatchDate(new Date().toISOString().slice(0,10));
+    }
     setEditingMatchId(match.id);
     window.scrollTo({ top: 0, behavior: 'smooth' });
   };
@@ -888,24 +911,53 @@ export default function App() {
         </header>
 
         {/* Hero Title */}
-        <div className="mb-8">
+        <motion.div
+          className="mb-8"
+          initial={{ opacity: 0, y: 30 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ duration: 0.6, ease: [0.22, 1, 0.36, 1] }}
+        >
           <h1 className="text-5xl md:text-7xl font-extrabold font-display tracking-tighter mb-2">
-            Premium IPL Contest <span className="text-primary">Dashboard</span>
+            <motion.span
+              initial={{ opacity: 0, x: -20 }}
+              animate={{ opacity: 1, x: 0 }}
+              transition={{ delay: 0.1, duration: 0.5 }}
+            >
+              Premium IPL Contest{' '}
+            </motion.span>
+            <motion.span
+              className="text-primary"
+              initial={{ opacity: 0, x: 20 }}
+              animate={{ opacity: 1, x: 0 }}
+              transition={{ delay: 0.25, duration: 0.5 }}
+            >
+              Dashboard
+            </motion.span>
           </h1>
-          <p className="text-on-surface-variant font-bold tracking-[0.2em] text-xs uppercase">
+          <motion.p
+            className="text-on-surface-variant font-bold tracking-[0.2em] text-xs uppercase"
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            transition={{ delay: 0.4, duration: 0.5 }}
+          >
             The Ultimate Fan League Experience
-          </p>
-        </div>
+          </motion.p>
+        </motion.div>
 
         {/* Season Switcher */}
         <div className="mb-10 flex items-center gap-4 flex-wrap">
           <span className="text-[10px] font-black text-on-surface-variant uppercase tracking-widest">Season</span>
           <div className="flex gap-2 flex-wrap">
-            {SEASONS.map(season => (
-              <button
+            {SEASONS.map((season, i) => (
+              <motion.button
                 key={season}
                 onClick={() => handleSeasonChange(season)}
                 disabled={isLoadingPlayers || isLoadingMatches}
+                initial={{ opacity: 0, y: -10 }}
+                animate={{ opacity: 1, y: 0 }}
+                transition={{ delay: 0.05 * i, duration: 0.3 }}
+                whileHover={{ scale: 1.05 }}
+                whileTap={{ scale: 0.95 }}
                 className={`px-5 py-2 rounded-full text-sm font-bold transition-all border disabled:opacity-50 disabled:cursor-not-allowed ${
                   currentSeason === season
                     ? 'bg-primary text-background border-primary shadow-lg shadow-primary/20'
@@ -918,7 +970,7 @@ export default function App() {
                     <LoadingSpinner size="w-3 h-3" />
                   )}
                 </div>
-              </button>
+              </motion.button>
             ))}
           </div>
         </div>
@@ -930,25 +982,46 @@ export default function App() {
               <motion.div
                 initial={{ opacity: 0, y: 20 }}
                 animate={{ opacity: 1, y: 0 }}
-                transition={{ delay: 0.1 }}
-                className="glass-card p-6 text-center"
+                transition={{ delay: 0.1, duration: 0.5, ease: [0.22, 1, 0.36, 1] }}
+                whileHover={{ y: -4, scale: 1.02 }}
+                className="glass-card p-6 text-center cursor-default"
               >
-                <div className="w-12 h-12 bg-primary/10 rounded-full flex items-center justify-center mx-auto mb-3">
+                <motion.div
+                  className="w-12 h-12 bg-primary/10 rounded-full flex items-center justify-center mx-auto mb-3"
+                  whileHover={{ rotate: 15, scale: 1.15 }}
+                  transition={{ type: 'spring', stiffness: 300 }}
+                >
                   <Trophy className="w-6 h-6 text-primary" />
-                </div>
+                </motion.div>
                 <div className="text-3xl font-black text-primary mb-1">{seasonSummaryStats.totalMatches}</div>
                 <div className="text-xs font-bold text-on-surface-variant uppercase tracking-widest">Total Matches</div>
+                <AnimatePresence>
+                  {seasonSummaryStats.tieMatchCount > 0 && (
+                    <motion.div
+                      initial={{ opacity: 0, scale: 0.8 }}
+                      animate={{ opacity: 1, scale: 1 }}
+                      className="text-xs font-bold text-secondary mt-2"
+                    >
+                      🤝 {seasonSummaryStats.tieMatchCount} Tie(s)
+                    </motion.div>
+                  )}
+                </AnimatePresence>
               </motion.div>
 
               <motion.div
                 initial={{ opacity: 0, y: 20 }}
                 animate={{ opacity: 1, y: 0 }}
-                transition={{ delay: 0.2 }}
+                transition={{ delay: 0.2, duration: 0.5, ease: [0.22, 1, 0.36, 1] }}
+                whileHover={{ y: -4, scale: 1.02 }}
                 className="glass-card p-6 text-center"
               >
-                <div className="w-12 h-12 bg-secondary/10 rounded-full flex items-center justify-center mx-auto mb-3">
+                <motion.div
+                  className="w-12 h-12 bg-secondary/10 rounded-full flex items-center justify-center mx-auto mb-3"
+                  whileHover={{ rotate: -15, scale: 1.15 }}
+                  transition={{ type: 'spring', stiffness: 300 }}
+                >
                   <Download className="w-6 h-6 text-secondary" />
-                </div>
+                </motion.div>
                 <div className="text-3xl font-black text-secondary mb-1">₹{seasonSummaryStats.totalPoolMoney}</div>
                 <div className="text-xs font-bold text-on-surface-variant uppercase tracking-widest">Total Pool</div>
               </motion.div>
@@ -956,14 +1029,19 @@ export default function App() {
               <motion.div
                 initial={{ opacity: 0, y: 20 }}
                 animate={{ opacity: 1, y: 0 }}
-                transition={{ delay: 0.3 }}
+                transition={{ delay: 0.3, duration: 0.5, ease: [0.22, 1, 0.36, 1] }}
+                whileHover={{ y: -4, scale: 1.02 }}
                 className="glass-card p-6 text-center cursor-pointer hover:bg-primary/5 transition-colors"
                 onClick={() => seasonSummaryStats.biggestWinner && openPlayerProfile(seasonSummaryStats.biggestWinner.playerId)}
                 title="Click to view player profile"
               >
-                <div className="w-12 h-12 bg-primary/10 rounded-full flex items-center justify-center mx-auto mb-3">
+                <motion.div
+                  className="w-12 h-12 bg-primary/10 rounded-full flex items-center justify-center mx-auto mb-3"
+                  whileHover={{ rotate: 15, scale: 1.15 }}
+                  transition={{ type: 'spring', stiffness: 300 }}
+                >
                   <TrendingUp className="w-6 h-6 text-primary" />
-                </div>
+                </motion.div>
                 <div className="text-lg font-black text-primary mb-1 truncate" title={seasonSummaryStats.biggestWinner?.name || 'N/A'}>
                   {seasonSummaryStats.biggestWinner?.name || 'N/A'}
                 </div>
@@ -973,21 +1051,21 @@ export default function App() {
               <motion.div
                 initial={{ opacity: 0, y: 20 }}
                 animate={{ opacity: 1, y: 0 }}
-                transition={{ delay: 0.4 }}
-                className="glass-card p-6 text-center cursor-pointer hover:bg-secondary/5 transition-colors"
-                onClick={() => seasonSummaryStats.winRateChampion && openPlayerProfile(seasonSummaryStats.winRateChampion.id)}
-                title="Click to view player profile"
+                transition={{ delay: 0.4, duration: 0.5, ease: [0.22, 1, 0.36, 1] }}
+                whileHover={{ y: -4, scale: 1.02 }}
+                className="glass-card p-6 text-center"
+                title="Most recent tie match"
               >
                 <div className="w-12 h-12 bg-secondary/10 rounded-full flex items-center justify-center mx-auto mb-3">
                   <Trophy className="w-6 h-6 text-secondary" />
                 </div>
-                <div className="text-lg font-black text-secondary mb-1 truncate" title={seasonSummaryStats.winRateChampion?.name || 'N/A'}>
-                  {seasonSummaryStats.winRateChampion?.name || 'N/A'}
+                <div className="text-lg font-black text-secondary mb-1 truncate" title={seasonSummaryStats.recentTieMatch ? seasonSummaryStats.recentTieMatch.name : 'N/A'}>
+                  {seasonSummaryStats.recentTieMatch ? seasonSummaryStats.recentTieMatch.name : 'N/A'}
                 </div>
-                <div className="text-xs font-bold text-on-surface-variant uppercase tracking-widest mb-1">Win Rate Champion</div>
-                {seasonSummaryStats.winRateChampion && (
+                <div className="text-xs font-bold text-on-surface-variant uppercase tracking-widest mb-1">Recent Tie Match</div>
+                {seasonSummaryStats.recentTieMatch && (
                   <div className="text-sm font-black text-secondary">
-                    {seasonSummaryStats.winRateChampion.winRate.toFixed(0)}% ({seasonSummaryStats.winRateChampion.matchesPlayed} games)
+                    🤝 {new Date(seasonSummaryStats.recentTieMatch.timestamp).toLocaleDateString('en-GB')}
                   </div>
                 )}
               </motion.div>
@@ -1038,7 +1116,12 @@ export default function App() {
           <>
             <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 mb-12">
           {/* Left Column: Match Details & Rewards */}
-          <div className="lg:col-span-4 space-y-8">
+          <motion.div
+            className="lg:col-span-4 space-y-8"
+            initial={{ opacity: 0, x: -40 }}
+            animate={{ opacity: 1, x: 0 }}
+            transition={{ duration: 0.6, ease: [0.22, 1, 0.36, 1], delay: 0.2 }}
+          >
             <section className="glass-panel p-8">
               <div className="flex items-center gap-3 mb-8">
                 <div className="p-2 bg-primary/10 rounded-lg">
@@ -1080,42 +1163,94 @@ export default function App() {
                   )}
                 </div>
                 <div className="space-y-2">
+                  <label className="text-[10px] font-black text-on-surface-variant uppercase tracking-widest">Match Date <span className="text-on-surface-variant/60">(Optional)</span></label>
+                  <div className="flex gap-2">
+                    <input
+                      type="date"
+                      value={matchDate}
+                      onChange={(e) => setMatchDate(e.target.value)}
+                      className="input-field flex-1"
+                    />
+                    <button
+                      onClick={() => setMatchDate(new Date().toISOString().slice(0,10))}
+                      className="px-3 py-3 bg-surface-bright hover:bg-surface-bright/80 rounded-xl border border-outline-variant transition-all text-xs font-bold text-on-surface-variant"
+                      title="Reset to today"
+                    >
+                      Today
+                    </button>
+                  </div>
+                </div>
+                <div className="space-y-2">
                   <label className="text-[10px] font-black text-on-surface-variant uppercase tracking-widest">Entry Fee</label>
 
                   {/* Fee Mode Toggle */}
                   <div className="flex gap-2 mb-3">
-                    <button
-                      onClick={() => setFeeMode('preset')}
+                    <motion.button
+                      whileHover={{ scale: 1.04 }}
+                      whileTap={{ scale: 0.96 }}
+                      onClick={() => {
+                        setFeeMode('preset');
+                        if (matchType === 'Tie') setMatchType('Normal');
+                      }}
                       className={`flex-1 py-2 px-3 text-xs font-bold rounded-lg transition-all ${
-                        feeMode === 'preset'
+                        feeMode === 'preset' && matchType !== 'Tie'
                           ? 'bg-primary text-background'
                           : 'bg-surface-bright text-on-surface-variant hover:bg-surface-bright/80'
                       }`}
                     >
                       Preset Fees
-                    </button>
-                    <button
-                      onClick={() => setFeeMode('custom')}
+                    </motion.button>
+                    <motion.button
+                      whileHover={{ scale: 1.04 }}
+                      whileTap={{ scale: 0.96 }}
+                      onClick={() => {
+                        setFeeMode('custom');
+                        if (matchType === 'Tie') setMatchType('Normal');
+                      }}
                       className={`flex-1 py-2 px-3 text-xs font-bold rounded-lg transition-all ${
-                        feeMode === 'custom'
+                        feeMode === 'custom' && matchType !== 'Tie'
                           ? 'bg-primary text-background'
                           : 'bg-surface-bright text-on-surface-variant hover:bg-surface-bright/80'
                       }`}
                     >
                       Custom Fee
-                    </button>
+                    </motion.button>
+                    <motion.button
+                      whileHover={{ scale: 1.04 }}
+                      whileTap={{ scale: 0.96 }}
+                      onClick={() => {
+                        setFeeMode('preset');
+                        setMatchType('Tie');
+                      }}
+                      className={`flex-1 py-2 px-3 text-xs font-bold rounded-lg transition-all ${
+                        matchType === 'Tie'
+                          ? 'bg-primary text-background'
+                          : 'bg-surface-bright text-on-surface-variant hover:bg-surface-bright/80'
+                      }`}
+                    >
+                      🤝 Tie
+                    </motion.button>
                   </div>
 
-                  {feeMode === 'preset' ? (
+                  {matchType !== 'Tie' && feeMode === 'preset' ? (
                     <select
                       value={matchType}
                       onChange={(e) => setMatchType(e.target.value as MatchType)}
                       className="input-field w-full appearance-none"
                     >
-                      {MATCH_TYPES.map(t => (
+                      {MATCH_TYPES.filter(t => t.type !== 'Tie' && t.type !== 'Custom').map(t => (
                         <option key={t.type} value={t.type}>{t.type} League (₹{t.fee} Entry)</option>
                       ))}
                     </select>
+                  ) : matchType === 'Tie' ? (
+                    <motion.div
+                      initial={{ opacity: 0, scale: 0.95 }}
+                      animate={{ opacity: 1, scale: 1 }}
+                      transition={{ duration: 0.3, ease: [0.22, 1, 0.36, 1] }}
+                      className="p-3 rounded-lg bg-primary/10 border border-primary/20 text-center"
+                    >
+                      <p className="text-sm font-bold text-primary">No entry fee - Tie match</p>
+                    </motion.div>
                   ) : (
                     <input
                       type="number"
@@ -1159,26 +1294,36 @@ export default function App() {
             </section>
 
               <div className="space-y-4">
-              <button 
+              <motion.button
                 onClick={handleAddMatch}
+                whileHover={{ scale: 1.02, boxShadow: '0 0 24px rgba(var(--color-primary-rgb, 99 102 241) / 0.35)' }}
+                whileTap={{ scale: 0.97 }}
+                transition={{ type: 'spring', stiffness: 400, damping: 20 }}
                 className="btn-primary w-full flex items-center justify-center gap-3 py-4"
               >
                 <div className="w-5 h-5 rounded-full bg-background flex items-center justify-center">
                   {editingMatchId ? <Edit2 className="w-3 h-3 text-primary" /> : <RotateCcw className="w-3 h-3 text-primary" />}
                 </div>
                 {editingMatchId ? 'UPDATE MATCH' : 'SAVE & FINALIZE MATCH'}
-              </button>
-              <button 
+              </motion.button>
+              <motion.button
                 onClick={resetForm}
+                whileHover={{ scale: 1.02 }}
+                whileTap={{ scale: 0.97 }}
                 className="btn-secondary w-full py-4 uppercase tracking-widest text-xs"
               >
                 {editingMatchId ? 'Cancel Edit' : 'Reset Current'}
-              </button>
+              </motion.button>
             </div>
-          </div>
+          </motion.div>
 
           {/* Center Column: Player Predictions */}
-          <div className="lg:col-span-8 space-y-8">
+          <motion.div
+            className="lg:col-span-8 space-y-8"
+            initial={{ opacity: 0, x: 40 }}
+            animate={{ opacity: 1, x: 0 }}
+            transition={{ duration: 0.6, ease: [0.22, 1, 0.36, 1], delay: 0.3 }}
+          >
             <section className="glass-panel p-8 relative overflow-hidden">
               <div className="absolute top-4 right-8 text-6xl font-black text-on-surface/5 pointer-events-none font-display">
                 {players.length.toString().padStart(2, '0')}
@@ -1189,7 +1334,7 @@ export default function App() {
                 <p className="text-on-surface-variant text-sm">Select the friends playing in this match.</p>
               </div>
 
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-12">
+              <div className={`grid grid-cols-1 md:grid-cols-2 gap-4 mb-12 transition-all duration-300 ${matchType === 'Tie' ? 'opacity-40 blur-sm pointer-events-none' : ''}`}>
                 {isLoadingPlayers ? (
                   // Show shimmer cards while loading
                   Array.from({ length: 5 }).map((_, i) => (
@@ -1198,9 +1343,14 @@ export default function App() {
                     </div>
                   ))
                 ) : (
-                  players.map(p => (
-                    <div 
-                      key={p.id} 
+                  players.map((p, i) => (
+                    <motion.div
+                      key={p.id}
+                      initial={{ opacity: 0, y: 15 }}
+                      animate={{ opacity: 1, y: 0 }}
+                      transition={{ delay: i * 0.06, duration: 0.35, ease: [0.22, 1, 0.36, 1] }}
+                      whileHover={{ scale: 1.02 }}
+                      whileTap={{ scale: 0.97 }}
                       onClick={() => togglePlayerSelection(p.id)}
                       className={`glass-card p-5 transition-all cursor-pointer group ${
                         selectedPlayerIds.includes(p.id) ? 'border-primary/40 bg-primary/5' : ''
@@ -1221,12 +1371,17 @@ export default function App() {
                           </div>
                         </div>
                         {selectedPlayerIds.includes(p.id) && (
-                          <div className="w-6 h-6 bg-primary rounded-full flex items-center justify-center">
+                          <motion.div
+                            initial={{ scale: 0 }}
+                            animate={{ scale: 1 }}
+                            exit={{ scale: 0 }}
+                            className="w-6 h-6 bg-primary rounded-full flex items-center justify-center"
+                          >
                             <RotateCcw className="w-3 h-3 text-background" />
-                          </div>
+                          </motion.div>
                         )}
                       </div>
-                    </div>
+                    </motion.div>
                   ))
                 )}
                 
@@ -1239,52 +1394,67 @@ export default function App() {
                 </button>
               </div>
 
-              <div className="glass-card p-8 bg-surface-high/60">
+              <div className={`glass-card p-8 bg-surface-high/60 transition-all duration-300 ${matchType === 'Tie' ? 'opacity-40 blur-sm pointer-events-none' : ''}`}>
                 <div className="mb-6">
                   <h3 className="text-xl font-bold font-display mb-1">Match Results</h3>
                   <p className="text-on-surface-variant text-sm">Select the 1st and 2nd place winners from the participants.</p>
                 </div>
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                  <div className="space-y-2">
-                    <label className="text-[10px] font-black text-primary uppercase tracking-widest">🥇 1st Prize Winner</label>
-                    <select 
-                      value={winnerPlayerId || ''}
-                      onChange={(e) => {
-                        const val = e.target.value ? Number(e.target.value) : null;
-                        setWinnerPlayerId(val);
-                        if (val && val === runnerUpPlayerId) setRunnerUpPlayerId(null);
-                      }}
-                      className="w-full input-field appearance-none"
-                    >
-                      <option value="">-- No Winner --</option>
-                      {players.filter(p => selectedPlayerIds.includes(p.id)).map(p => (
-                        <option key={p.id} value={p.id}>{p.name}</option>
-                      ))}
-                    </select>
+                  <div className="space-y-4">
+                    <div className="space-y-2">
+                      <label className="text-[10px] font-black text-primary uppercase tracking-widest">🥇 1st Prize Winner</label>
+                      <select 
+                        value={winnerPlayerId || ''}
+                        onChange={(e) => {
+                          const val = e.target.value ? Number(e.target.value) : null;
+                          setWinnerPlayerId(val);
+                          if (val && val === runnerUpPlayerId) setRunnerUpPlayerId(null);
+                        }}
+                        disabled={matchType === 'Tie'}
+                        className={`w-full input-field appearance-none ${matchType === 'Tie' ? 'opacity-50 cursor-not-allowed' : ''}`}
+                      >
+                        <option value="">-- No Winner --</option>
+                        {players.filter(p => selectedPlayerIds.includes(p.id)).map(p => (
+                          <option key={p.id} value={p.id}>{p.name}</option>
+                        ))}
+                      </select>
+                    </div>
                   </div>
-                  <div className="space-y-2">
-                    <label className="text-[10px] font-black text-secondary uppercase tracking-widest">🥈 2nd Prize Runner-up</label>
-                    <select 
-                      value={runnerUpPlayerId || ''}
-                      onChange={(e) => setRunnerUpPlayerId(e.target.value ? Number(e.target.value) : null)}
-                      className="w-full input-field appearance-none"
-                    >
-                      <option value="">-- No Runner-up --</option>
-                      {players.filter(p => selectedPlayerIds.includes(p.id) && p.id !== winnerPlayerId).map(p => (
-                        <option key={p.id} value={p.id}>{p.name}</option>
-                      ))}
-                    </select>
+
+                  <div className="space-y-4">
+                    <div className="space-y-2">
+                      <label className="text-[10px] font-black text-secondary uppercase tracking-widest">🥈 2nd Prize Runner-up</label>
+                      <select 
+                        value={runnerUpPlayerId || ''}
+                        onChange={(e) => {
+                          const val = e.target.value ? Number(e.target.value) : null;
+                          setRunnerUpPlayerId(val);
+                        }}
+                        disabled={matchType === 'Tie'}
+                        className={`w-full input-field appearance-none ${matchType === 'Tie' ? 'opacity-50 cursor-not-allowed' : ''}`}
+                      >
+                        <option value="">-- No Runner-up --</option>
+                        {players.filter(p => selectedPlayerIds.includes(p.id) && p.id !== winnerPlayerId).map(p => (
+                          <option key={p.id} value={p.id}>{p.name}</option>
+                        ))}
+                      </select>
+                    </div>
                   </div>
                 </div>
               </div>
             </section>
-          </div>
+          </motion.div>
         </div>
 
         {/* Bottom Section: Standings & History */}
         <div className="grid grid-cols-1 lg:grid-cols-12 gap-8">
           {/* Season Standings */}
-          <div className="lg:col-span-8">
+          <motion.div
+            className="lg:col-span-8"
+            initial={{ opacity: 0, y: 40 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ duration: 0.6, ease: [0.22, 1, 0.36, 1], delay: 0.4 }}
+          >
             <section className="glass-panel p-8 h-full">
               <div className="flex justify-between items-center mb-8">
                 <h2 className="text-2xl font-bold font-display flex items-center gap-3">
@@ -1320,9 +1490,13 @@ export default function App() {
                       ))
                     ) : (
                       leaderboard.map((entry, index) => (
-                        <tr
+                        <motion.tr
                           key={entry.playerId}
-                          className="group hover:bg-on-surface/[0.02] transition-colors cursor-pointer"
+                          initial={{ opacity: 0, x: -20 }}
+                          animate={{ opacity: 1, x: 0 }}
+                          transition={{ delay: index * 0.07, duration: 0.4, ease: [0.22, 1, 0.36, 1] }}
+                          whileHover={{ backgroundColor: 'rgba(255,255,255,0.02)', x: 2 }}
+                          className="group transition-colors cursor-pointer"
                           onClick={() => openPlayerProfile(entry.playerId)}
                           title="Click to view player profile"
                         >
@@ -1371,17 +1545,22 @@ export default function App() {
                               {entry.profit >= 0 ? '+' : ''}₹{entry.profit}
                             </span>
                           </td>
-                        </tr>
+                        </motion.tr>
                       ))
                     )}
                   </tbody>
                 </table>
               </div>
             </section>
-          </div>
+          </motion.div>
 
           {/* Match History */}
-          <div className="lg:col-span-4">
+          <motion.div
+            className="lg:col-span-4"
+            initial={{ opacity: 0, y: 40 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ duration: 0.6, ease: [0.22, 1, 0.36, 1], delay: 0.5 }}
+          >
             <section className="glass-panel p-8 h-full">
               <h2 className="text-2xl font-bold font-display mb-8">Match History</h2>
               <div className="space-y-4">
@@ -1395,8 +1574,15 @@ export default function App() {
                     <ShimmerMatchHistory />
                   ) : (
                     <>
-                      {matches.map(match => (
-                        <div key={match.id} className="flex flex-col py-3 group border-b border-outline-variant/30 last:border-0">
+                      {matches.map((match, i) => (
+                        <motion.div
+                          key={match.id}
+                          initial={{ opacity: 0, y: 10 }}
+                          animate={{ opacity: 1, y: 0 }}
+                          exit={{ opacity: 0, x: -20 }}
+                          transition={{ delay: i * 0.05, duration: 0.3, ease: [0.22, 1, 0.36, 1] }}
+                          className="flex flex-col py-3 group border-b border-outline-variant/30 last:border-0"
+                        >
                           <div className="flex justify-between items-center mb-2">
                             <span className="text-xs font-bold text-on-surface-variant">
                               {new Date(match.timestamp).toLocaleDateString('en-GB', { day: '2-digit', month: '2-digit', year: 'numeric' }).replace(/\//g, '.')}
@@ -1434,7 +1620,7 @@ export default function App() {
                               )}
                             </button>
                           </div>
-                        </div>
+                        </motion.div>
                       ))}
                       {matches.length === 0 && !isLoadingMatches && (
                         <div className="text-center py-12 text-on-surface-variant text-sm italic">
@@ -1446,7 +1632,7 @@ export default function App() {
                 </div>
               </div>
             </section>
-          </div>
+          </motion.div>
         </div>
         </>
         )}

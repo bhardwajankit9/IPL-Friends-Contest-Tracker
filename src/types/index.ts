@@ -3,7 +3,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-export type MatchType = 'Normal' | 'Qualifier' | 'Final' | 'Custom';
+export type MatchType = 'Normal' | 'Qualifier' | 'Final' | 'Custom' | 'Tie';
 
 export interface Player {
   id: number;
@@ -25,6 +25,7 @@ export interface Match {
   actualWinner: string;
   winnerId: number | null;
   runnerUpId: number | null;
+  isTie: boolean;              // Flag: match ended in a tie (no winner, no investment)
   prizeWinner: number;
   prizeRunnerUp: number;
   timestamp: number;

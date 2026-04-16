@@ -26,6 +26,9 @@ interface MatchFormProps {
   currentEntryFee: number;
   currentWinnerPrize: number;
   currentRunnerUpPrize: number;
+  // Match date
+  matchDate: string;
+  setMatchDate: (d: string) => void;
 
   // Player selection
   players: Player[];
@@ -62,6 +65,24 @@ export function MatchForm(props: MatchFormProps) {
           </div>
 
           <div className="space-y-6">
+            <div className="space-y-2">
+              <label className="text-[10px] font-black text-on-surface-variant uppercase tracking-widest">Match Date <span className="text-on-surface-variant/60">(Optional)</span></label>
+              <div className="flex gap-2">
+                <input
+                  type="date"
+                  value={props.matchDate}
+                  onChange={(e) => props.setMatchDate(e.target.value)}
+                  className="input-field flex-1"
+                />
+                <button
+                  onClick={() => props.setMatchDate(new Date().toISOString().slice(0,10))}
+                  className="px-3 py-3 bg-surface-bright hover:bg-surface-bright/80 rounded-xl border border-outline-variant transition-all text-xs font-bold text-on-surface-variant"
+                  title="Reset to today"
+                >
+                  Today
+                </button>
+              </div>
+            </div>
             <div className="space-y-2">
               <label className="text-[10px] font-black text-on-surface-variant uppercase tracking-widest">Select Teams</label>
               <div className="grid grid-cols-2 gap-3">

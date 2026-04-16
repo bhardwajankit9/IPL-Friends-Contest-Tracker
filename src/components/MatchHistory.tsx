@@ -43,15 +43,29 @@ export function MatchHistory({
             <ShimmerMatchHistory />
           ) : (
             <>
-              {matches.map(match => (
+              {matches.map(match => {
+                const winner = match.winnerId ? players.find(p => p.id === match.winnerId) : null;
+                return (
                 <div key={match.id} className="flex flex-col py-3 group border-b border-outline-variant/30 last:border-0">
                   <div className="flex justify-between items-center mb-2">
                     <span className="text-xs font-bold text-on-surface-variant">
                       {new Date(match.timestamp).toLocaleDateString('en-GB', { day: '2-digit', month: '2-digit', year: 'numeric' }).replace(/\//g, '.')}
                     </span>
-                    <span className="text-sm font-bold">{match.name}</span>
+                    <div className="flex-1 flex items-center gap-2 mx-4">
+                      <span className="text-sm font-bold">{match.name}</span>
+                      {match.isTie && <span className="text-[10px] bg-primary/20 text-primary px-2 py-1 rounded font-bold">🤝 TIE</span>}
+                    </div>
                     <div className={`w-6 h-6 rounded-full flex items-center justify-center ${match.winnerId ? 'bg-primary/20 text-primary' : 'bg-rose-500/20 text-rose-500'}`}>
                       {match.winnerId ? <RotateCcw className="w-3 h-3" /> : <X className="w-3 h-3" />}
+                    </div>
+                  </div>
+                  <div className="flex justify-between items-center mb-2 px-2">
+                    <div className="text-xs text-on-surface-variant">
+                      {winner && (
+                        <span>
+                          🥇 {winner.name}
+                        </span>
+                      )}
                     </div>
                   </div>
                   <div className="flex justify-end gap-2">
@@ -83,7 +97,7 @@ export function MatchHistory({
                     </button>
                   </div>
                 </div>
-              ))}
+              )})}
               {matches.length === 0 && !isLoadingMatches && (
                 <div className="text-center py-12 text-on-surface-variant text-sm italic">
                   No matches yet

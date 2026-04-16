@@ -36,7 +36,7 @@ service cloud.firestore {
       return data.keys().hasAll(['id', 'name', 'type', 'entryFee', 'totalPool', 'predictions', 'actualWinner', 'prizeWinner', 'prizeRunnerUp', 'timestamp']) &&
              data.id is string && data.id.size() > 0 && data.id.size() < 100 &&
              data.name is string && data.name.size() > 0 && data.name.size() < 100 &&
-             data.type in ['Normal', 'Qualifier', 'Final', 'Custom'] &&
+             data.type in ['Normal', 'Qualifier', 'Final', 'Custom', 'Tie'] &&
              data.entryFee is number && data.entryFee >= 0 &&
              data.totalPool is number && data.totalPool >= 0 &&
              areValidPredictions(data.predictions) &&

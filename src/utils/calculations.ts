@@ -24,6 +24,11 @@ export function calculateLeaderboard(
   });
 
   matches.forEach(m => {
+    // Skip tie matches for prize calculation
+    if (m.isTie) {
+      return;
+    }
+
     m.predictions.forEach(pred => {
       if (board[pred.playerId]) {
         board[pred.playerId].invested += m.entryFee;
@@ -33,6 +38,7 @@ export function calculateLeaderboard(
     if (m.winnerId && board[m.winnerId]) {
       board[m.winnerId].won += m.prizeWinner;
     }
+
     if (m.runnerUpId && board[m.runnerUpId]) {
       board[m.runnerUpId].won += m.prizeRunnerUp;
     }
@@ -46,6 +52,8 @@ export function calculateLeaderboard(
     // Calculate win streak
     let streak = 0;
     for (const match of sortedMatches) {
+      if (match.isTie) continue;
+      
       if (match.winnerId === entry.playerId) {
         streak++;
       } else if (match.predictions.some(p => p.playerId === entry.playerId)) {
@@ -55,12 +63,12 @@ export function calculateLeaderboard(
     entry.winStreak = streak;
     
     // Calculate badges
-    const totalWins = matches.filter(m => m.winnerId === entry.playerId).length;
-    const totalMatches = matches.filter(m => m.predictions.some(p => p.playerId === entry.playerId)).length;
+    const totalWins = matches.filter(m => !m.isTie && m.winnerId === entry.playerId).length;
+    const totalMatches = matches.filter(m => !m.isTie && m.predictions.some(p => p.playerId === entry.playerId)).length;
     const winRate = totalMatches > 0 ? totalWins / totalMatches : 0;
     
     if (totalWins === Math.max(...Object.values(board).map(e => 
-      matches.filter(m => m.winnerId === e.playerId).length
+      matches.filter(m => !m.isTie && m.winnerId === e.playerId).length
     ))) {
       entry.badges.push('Most Wins');
     }
@@ -86,12 +94,14 @@ export function calculateSeasonStats(
   leaderboard: LeaderboardEntry[],
   players: Player[]
 ) {
-  const totalMatches = matches.length;
-  const totalPoolMoney = matches.reduce((sum, match) => sum + match.totalPool, 0);
+  const nonTieMatches = matches.filter(m => !m.isTie);
+  const totalMatches = nonTieMatches.length;
+  const tieMatchCount = matches.filter(m => m.isTie).length;
+  const totalPoolMoney = nonTieMatches.reduce((sum, match) => sum + match.totalPool, 0);
   const biggestWinner = leaderboard.length > 0 ? leaderboard[0] : null;
 
   const playerParticipation = players.map(player => {
-    const playerMatches = matches.filter(match =>
+    const playerMatches = nonTieMatches.filter(match =>
       match.predictions.some(pred => pred.playerId === player.id)
     );
     return {
@@ -106,10 +116,15 @@ export function calculateSeasonStats(
       )
     : null;
 
+  // Most recent tie match
+  const recentTieMatch = matches.filter(m => m.isTie).sort((a, b) => b.timestamp - a.timestamp)[0];
+
   return {
     totalMatches,
     totalPoolMoney,
     biggestWinner,
-    mostActivePlayer
+    mostActivePlayer,
+    recentTieMatch,
+    tieMatchCount
   };
 }
