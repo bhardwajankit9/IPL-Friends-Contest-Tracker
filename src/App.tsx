@@ -79,6 +79,7 @@ export default function App() {
   const [isAuthReady, setIsAuthReady] = useState(false);
   const [isSigningIn, setIsSigningIn] = useState(false);
   const [signInError, setSignInError] = useState<string | null>(null);
+  const [initialLoadCompleted, setInitialLoadCompleted] = useState(false);
 
   const [players, setPlayers] = useState<Player[]>(DEFAULT_PLAYERS);
   const [matches, setMatches] = useState<Match[]>([]);
@@ -322,6 +323,13 @@ export default function App() {
       setIsSwitchingSeason(false);
     }
   }, [isLoadingPlayers, isLoadingMatches]);
+
+  // Track initial load completion so we can show a full-screen loader
+  useEffect(() => {
+    if (isAuthReady && !isLoadingPlayers && !isLoadingMatches) {
+      setInitialLoadCompleted(true);
+    }
+  }, [isAuthReady, isLoadingPlayers, isLoadingMatches]);
 
   // Scroll position management for match history
   useEffect(() => {
@@ -776,8 +784,21 @@ export default function App() {
   };
 
   // --- Render ---
+  const showInitialLoading = !initialLoadCompleted && (!isAuthReady || isLoadingPlayers || isLoadingMatches);
+
+  if (showInitialLoading) {
+    return (
+      <div style={{ minHeight: 'calc(var(--vh, 1vh) * 100)' }} className="flex items-center justify-center bg-background text-on-surface p-4">
+        <div className="text-center">
+          <LoadingSpinner size="w-12 h-12" />
+          <div className="mt-4 text-sm font-bold">Loading…</div>
+        </div>
+      </div>
+    );
+  }
+
   return (
-    <div className="min-h-screen bg-background text-on-surface font-sans p-4 md:p-8 selection:bg-primary/30">
+    <div style={{ minHeight: 'calc(var(--vh, 1vh) * 100)' }} className="min-h-screen bg-background text-on-surface font-sans p-4 md:p-8 selection:bg-primary/30">
       {/* Background Atmosphere */}
       <div className="fixed inset-0 overflow-hidden pointer-events-none">
         <div className="absolute top-[-10%] left-[-10%] w-[60%] h-[60%] bg-primary/5 blur-[120px] rounded-full" />

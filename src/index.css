@@ -20,6 +20,12 @@
 @layer base {
   body {
     @apply bg-background text-on-surface font-sans antialiased;
+    /* Respect iOS safe area insets (notch/home indicator) */
+    padding-top: env(safe-area-inset-top);
+    padding-bottom: env(safe-area-inset-bottom);
+    /* Fallback for older WebKit */
+    padding-top: constant(safe-area-inset-top);
+    padding-bottom: constant(safe-area-inset-bottom);
   }
 
   h1, h2, h3, h4, .font-display {
