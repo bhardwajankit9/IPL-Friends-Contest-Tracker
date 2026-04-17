@@ -15,6 +15,12 @@ service cloud.firestore {
              exists(/databases/$(database)/documents/users/$(userId)/shared_users/$(request.auth.uid));
     }
 
+    function hasSharedWriteAccess(userId) {
+      return isAuthenticated() &&
+             exists(/databases/$(database)/documents/users/$(userId)/shared_users/$(request.auth.uid)) &&
+             get(/databases/$(database)/documents/users/$(userId)/shared_users/$(request.auth.uid)).data.canWrite != false;
+    }
+
     function isValidPlayer(data) {
       return data.keys().hasAll(['id', 'name']) &&
              data.id is number &&
@@ -71,7 +77,8 @@ service cloud.firestore {
 
     // Seasons and their subcollections
     match /users/{userId}/seasons/{seasonId}/{document=**} {
-      allow read, write: if isDataOwner(userId) || hasSharedAccess(userId);
+      allow read: if isDataOwner(userId) || hasSharedAccess(userId);
+      allow write: if isDataOwner(userId) || hasSharedWriteAccess(userId);
     }
   }
 }

@@ -11,6 +11,7 @@ import { db } from '../firebase';
 export function useAuth(isAuthReady: boolean, user: User | null) {
   console.log('🔧 useAuth hook called - isAuthReady:', isAuthReady, 'user:', user?.email || 'null');
   const [dataOwner, setDataOwner] = useState<User | null>(null);
+  const [viewerCanWrite, setViewerCanWrite] = useState<boolean>(true);
 
   // Store user information for sharing lookup
   useEffect(() => {
@@ -77,10 +78,15 @@ export function useAuth(isAuthReady: boolean, user: User | null) {
             console.log('  📝 Shared user IDs:', sharedUserIds);
           }
           
-          const hasAccess = sharedUserSnapshot.docs.some(doc => doc.id === user.uid);
-          console.log(`  🔐 Current user (${user.uid}) has access:`, hasAccess);
+          const shareDoc = sharedUserSnapshot.docs.find(doc => doc.id === user.uid);
+          console.log(`  🔐 Current user (${user.uid}) has access:`, !!shareDoc);
           
-          if (hasAccess) {
+          if (shareDoc) {
+            // canWrite missing on old docs → treat as true (back-compat)
+            const canWrite = shareDoc.data().canWrite !== false;
+            setViewerCanWrite(canWrite);
+            console.log(`  🔏 Viewer canWrite:`, canWrite);
+
             const sharerData = userDoc.data();
             
             const sharerUser = {
@@ -100,6 +106,7 @@ export function useAuth(isAuthReady: boolean, user: User | null) {
         // No shared access found, user is their own data owner
         console.log('ℹ️ [useAuth] No shared access found, using own data');
         console.log('ℹ️ [useAuth] Setting dataOwner to self:', user.email);
+        setViewerCanWrite(true);
         setDataOwner(user);
       } catch (error) {
         console.error('❌ [useAuth] Error checking shared access:', error);
@@ -110,5 +117,5 @@ export function useAuth(isAuthReady: boolean, user: User | null) {
     checkSharedAccess();
   }, [isAuthReady, user]);
 
-  return { dataOwner };
+  return { dataOwner, viewerCanWrite };
 }

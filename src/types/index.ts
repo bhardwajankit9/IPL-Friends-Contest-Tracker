@@ -47,6 +47,7 @@ export interface SharedUser {
   displayName: string;
   grantedAt: number;
   grantedBy: string;
+  canWrite: boolean; // true = Read & Write, false = Read Only
 }
 
 export enum OperationType {

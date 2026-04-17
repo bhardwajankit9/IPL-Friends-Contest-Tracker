@@ -111,10 +111,11 @@ export default function App() {
   const [isInstallable, setIsInstallable] = useState(false);
   
   // Data sharing - use custom hooks
-  const { dataOwner } = useAuth(isAuthReady, user);
+  const { dataOwner, viewerCanWrite } = useAuth(isAuthReady, user);
   const { sharedUsers, availableUsers } = useDataSharing(user, dataOwner);
   const [isManagingShares, setIsManagingShares] = useState(false);
   const [newShareEmail, setNewShareEmail] = useState('');
+  const [newSharePermission, setNewSharePermission] = useState<boolean>(true); // true = Read & Write, false = Read Only
   const [sharedUsersState, setSharedUsers] = useState<SharedUser[]>([]);
   const [availableUsersState, setAvailableUsers] = useState<Array<{id: string, email: string, displayName: string}>>([]);
   
@@ -402,6 +403,10 @@ export default function App() {
 
   // --- Handlers ---
   const handleAddMatch = async () => {
+    if (!viewerCanWrite) {
+      showAlert("You don't have access to add matches. You have read-only access to this data.", "Access Denied");
+      return;
+    }
     if (!teamA || !teamB) {
       showAlert('Please select both teams.');
       return;
@@ -596,6 +601,10 @@ export default function App() {
   }, [matches, leaderboard, players]);
 
   const handleEditMatch = (match: Match) => {
+    if (!viewerCanWrite) {
+      showAlert("You don't have access to edit matches. You have read-only access to this data.", "Access Denied");
+      return;
+    }
     // Parse team names from match name (format: "TEAM1 vs TEAM2")
     const teams = match.name.split(' vs ');
     if (teams.length === 2) {
@@ -629,6 +638,10 @@ export default function App() {
   };
 
   const handleDeleteMatch = (matchId: string) => {
+    if (!viewerCanWrite) {
+      showAlert("You don't have access to delete matches. You have read-only access to this data.", "Access Denied");
+      return;
+    }
     showConfirm('Are you sure you want to delete this match?', async () => {
       setDeletingMatchId(matchId);
       try {
@@ -735,7 +748,7 @@ export default function App() {
     }
   };
 
-  const shareDataWithUser = async (targetUserId: string) => {
+  const shareDataWithUser = async (targetUserId: string, canWrite: boolean = true) => {
     if (!user || !targetUserId) return;
 
     // Don't allow sharing with yourself
@@ -772,7 +785,8 @@ export default function App() {
         email: targetUserInfo.email,
         displayName: targetUserInfo.displayName,
         grantedAt: Date.now(),
-        grantedBy: user.uid
+        grantedBy: user.uid,
+        canWrite,
       };
 
       const docPath = `users/${user.uid}/shared_users/${targetUserId}`;
@@ -786,7 +800,8 @@ export default function App() {
       // onSnapshot in hook will auto-update sharedUsersState via the sync effect
       // Remove from available dropdown immediately
       setAvailableUsers(prev => prev.filter(u => u.id !== targetUserId));
-      showAlert(`Data access granted to ${sharedUser.displayName || sharedUser.email}`);
+      const permLabel = canWrite ? 'Read & Write' : 'Read Only';
+      showAlert(`Data access granted to ${sharedUser.displayName || sharedUser.email} (${permLabel})`);
       
       console.log('✅ [shareData] Data sharing completed successfully');
     } catch (error) {
@@ -818,6 +833,24 @@ export default function App() {
     } catch (error) {
       console.error('Error removing shared access:', error);
       showAlert('Failed to remove shared access.');
+    }
+  };
+
+  const toggleSharedUserPermission = async (sharedUserId: string, currentCanWrite: boolean) => {
+    if (!user) return;
+    try {
+      const newCanWrite = !currentCanWrite;
+      await setDoc(
+        doc(db, 'users', user.uid, 'shared_users', sharedUserId),
+        { canWrite: newCanWrite },
+        { merge: true }
+      );
+      // onSnapshot will update sharedUsersState automatically
+      const label = newCanWrite ? 'Read & Write' : 'Read Only';
+      showAlert(`Permission updated to ${label}.`);
+    } catch (error) {
+      console.error('Error updating permission:', error);
+      showAlert('Failed to update permission.');
     }
   };
 
@@ -2324,15 +2357,28 @@ export default function App() {
                         transition={{ duration: 0.25 }}
                         className="flex items-center justify-between p-3 glass-card"
                       >
-                        <div>
-                          <div className="font-bold">{sharedUser.displayName || sharedUser.email}</div>
+                        <div className="flex-1 min-w-0">
+                          <div className="font-bold truncate">{sharedUser.displayName || sharedUser.email}</div>
                           <div className="text-xs text-on-surface-variant">
                             Granted: {new Date(sharedUser.grantedAt).toLocaleDateString()}
                           </div>
+                          {/* Permission badge */}
+                          <button
+                            onClick={() => toggleSharedUserPermission(sharedUser.id, sharedUser.canWrite !== false)}
+                            title="Click to toggle permission"
+                            className={`mt-1 inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-bold transition-colors ${
+                              sharedUser.canWrite !== false
+                                ? 'bg-primary/15 text-primary hover:bg-primary/25'
+                                : 'bg-amber-500/15 text-amber-400 hover:bg-amber-500/25'
+                            }`}
+                          >
+                            {sharedUser.canWrite !== false ? '✏️ Read & Write' : '👁️ Read Only'}
+                            <span className="opacity-60 ml-1">(tap to change)</span>
+                          </button>
                         </div>
                         <button
                           onClick={() => removeSharedAccess(sharedUser.id)}
-                          className="p-2 text-rose-500 hover:bg-rose-500/10 rounded-lg transition-colors"
+                          className="ml-3 p-2 text-rose-500 hover:bg-rose-500/10 rounded-lg transition-colors flex-shrink-0"
                           title="Remove access"
                         >
                           <X className="w-4 h-4" />
@@ -2351,22 +2397,47 @@ export default function App() {
               {/* Add New User */}
               <div className="space-y-4">
                 <h3 className="text-lg font-bold font-display">Grant Access to New User</h3>
-                {availableUsers.length > 0 ? (
+
+                {/* Permission toggle */}
+                <div className="flex gap-2">
+                  <button
+                    onClick={() => setNewSharePermission(true)}
+                    className={`flex-1 py-2 px-3 rounded-lg text-sm font-bold transition-colors ${
+                      newSharePermission
+                        ? 'bg-primary text-background'
+                        : 'bg-surface-bright text-on-surface-variant hover:bg-primary/10'
+                    }`}
+                  >
+                    ✏️ Read &amp; Write
+                  </button>
+                  <button
+                    onClick={() => setNewSharePermission(false)}
+                    className={`flex-1 py-2 px-3 rounded-lg text-sm font-bold transition-colors ${
+                      !newSharePermission
+                        ? 'bg-amber-500 text-background'
+                        : 'bg-surface-bright text-on-surface-variant hover:bg-amber-500/10'
+                    }`}
+                  >
+                    👁️ Read Only
+                  </button>
+                </div>
+
+                {availableUsersState.length > 0 ? (
                   <div className="flex gap-2">
                     <select
                       value=""
                       onChange={(e) => {
                         if (e.target.value) {
-                          shareDataWithUser(e.target.value);
+                          shareDataWithUser(e.target.value, newSharePermission);
                           e.target.value = ''; // Reset selection
                         }
                       }}
                       className="flex-1 input-field appearance-none"
                     >
-                      <option value="">Select a user...</option>
-                      {availableUsers.map(user => (
-                        <option key={user.id} value={user.id}>
-                          {user.displayName || user.email}
+                      <option value="">Select a user to share with...</option>
+                      {availableUsersState.map(u => (
+                        <option key={u.id} value={u.id}>
+                          {u.displayName || u.email}
                         </option>
                       ))}
                     </select>
@@ -2377,8 +2448,9 @@ export default function App() {
                   </div>
                 )}
                 <p className="text-xs text-on-surface-variant">
-                  Select a user from the dropdown to grant them access to all your data.
-                  They will be able to view and manage your IPL contest data.
+                  <strong>Read &amp; Write</strong> — can view and add/edit/delete matches.{' '}
+                  <strong>Read Only</strong> — can only view your data, cannot make any changes.
+                  You can change the permission later by tapping the badge next to each user's name.
                 </p>
               </div>
             </motion.div>
