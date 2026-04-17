@@ -14,7 +14,10 @@ import {
   TrendingUp, 
   RotateCcw, 
   Download,
-  PlusCircle
+  PlusCircle,
+  Calendar,
+  ChevronLeft,
+  ChevronRight
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { auth, db } from './firebase';
@@ -127,8 +130,12 @@ export default function App() {
   const [selectedPlayerIds, setSelectedPlayerIds] = useState<number[]>([]);
   const [isAddingNewPlayerInModal, setIsAddingNewPlayerInModal] = useState(false);
   const [editingMatchId, setEditingMatchId] = useState<string | null>(null);
+  const matchFormRef = useRef<HTMLDivElement>(null);
   const [currentSeason, setCurrentSeason] = useState<string>(CURRENT_SEASON);
   const [matchDate, setMatchDate] = useState<string>(new Date().toISOString().slice(0,10));
+  const [isCalendarOpen, setIsCalendarOpen] = useState(false);
+  const [calendarViewDate, setCalendarViewDate] = useState<Date>(new Date());
+  const calendarRef = useRef<HTMLDivElement>(null);
   
   // Custom Alert/Confirm State
   const [alertConfig, setAlertConfig] = useState<{ show: boolean; message: string; title?: string; onConfirm?: () => void; isConfirm?: boolean }>({
@@ -277,10 +284,12 @@ export default function App() {
       if (loadedPlayers.length > 0) {
         console.log('✅ [loadData] Loaded', loadedPlayers.length, 'players');
         setPlayers(loadedPlayers);
+        setSelectedPlayerIds(prev => prev.length === 0 ? loadedPlayers.map(p => p.id) : prev);
       } else {
         console.log('ℹ️ [loadData] No players found, using defaults');
         // Show defaults immediately in UI
         setPlayers(DEFAULT_PLAYERS);
+        setSelectedPlayerIds(prev => prev.length === 0 ? DEFAULT_PLAYERS.map(p => p.id) : prev);
         // Try to persist to Firestore (may fail if rules not deployed yet)
         DEFAULT_PLAYERS.forEach(p => {
           setDoc(doc(db, 'users', dataOwnerId, 'seasons', currentSeason, 'players', p.id.toString()), p)
@@ -354,6 +363,18 @@ export default function App() {
     }
   }, [matches, isLoadingMatches, matchHistoryScrollTop]);
 
+  // Close calendar on outside click
+  useEffect(() => {
+    if (!isCalendarOpen) return;
+    const handler = (e: MouseEvent) => {
+      if (calendarRef.current && !calendarRef.current.contains(e.target as Node)) {
+        setIsCalendarOpen(false);
+      }
+    };
+    document.addEventListener('mousedown', handler);
+    return () => document.removeEventListener('mousedown', handler);
+  }, [isCalendarOpen]);
+
   // --- Calculations ---
   const currentTypeConfig = useMemo(() =>
     MATCH_TYPES.find(t => t.type === matchType) ?? { type: matchType, fee: 0 },
@@ -364,11 +385,11 @@ export default function App() {
   [feeMode, currentTypeConfig, customEntryFee]);
 
   const currentWinnerPrize = useMemo(() =>
-    Math.floor(currentEntryFee * selectedPlayerIds.length * 0.8),
+    Math.floor(currentEntryFee * selectedPlayerIds.length * 0.6),
   [currentEntryFee, selectedPlayerIds.length]);
 
   const currentRunnerUpPrize = useMemo(() =>
-    Math.floor(currentEntryFee * selectedPlayerIds.length * 0.2),
+    Math.floor(currentEntryFee * selectedPlayerIds.length * 0.4),
   [currentEntryFee, selectedPlayerIds.length]);
   // Derived winners for real-time UI feedback
   const derivedWinner = useMemo(() => players.find(p => p.id === winnerPlayerId) || null, [players, winnerPlayerId]);
@@ -455,7 +476,7 @@ export default function App() {
     setCustomEntryFee(20);
     setWinnerPlayerId(null);
     setRunnerUpPlayerId(null);
-    setSelectedPlayerIds([]);
+    setSelectedPlayerIds(players.map(p => p.id));
     setIsAddingNewPlayerInModal(false);
     setEditingMatchId(null);
     setMatchDate(new Date().toISOString().slice(0,10));
@@ -602,7 +623,9 @@ export default function App() {
       setMatchDate(new Date().toISOString().slice(0,10));
     }
     setEditingMatchId(match.id);
-    window.scrollTo({ top: 0, behavior: 'smooth' });
+    setTimeout(() => {
+      matchFormRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    }, 50);
   };
 
   const handleDeleteMatch = (matchId: string) => {
@@ -677,8 +700,8 @@ export default function App() {
                   ...m,
                   entryFee: 40,
                   totalPool: newPool,
-                  prizeWinner: m.winnerId ? Math.floor(newPool * 0.8) : 0,
-                  prizeRunnerUp: m.runnerUpId ? Math.floor(newPool * 0.2) : 0,
+                  prizeWinner: m.winnerId ? Math.floor(newPool * 0.6) : 0,
+                  prizeRunnerUp: m.runnerUpId ? Math.floor(newPool * 0.4) : 0,
                 }
               );
               updated++;
@@ -726,18 +749,18 @@ export default function App() {
       console.log('🔄 [shareData] From user:', user.email, 'uid:', user.uid);
       console.log('🔄 [shareData] To user ID:', targetUserId);
       
-      // Find user data
-      const targetUserInfo = availableUsers.find(u => u.id === targetUserId);
+      // Find user data — use live local state
+      const targetUserInfo = availableUsersState.find(u => u.id === targetUserId);
       if (!targetUserInfo) {
-        console.error('❌ [shareData] Target user not found in availableUsers');
+        console.error('❌ [shareData] Target user not found in availableUsersState');
         showAlert('User not found.');
         return;
       }
 
       console.log('✅ [shareData] Target user found:', targetUserInfo.email);
 
-      // Check if already shared
-      if (sharedUsers.some(su => su.id === targetUserId)) {
+      // Check if already shared — use live local state to avoid stale data
+      if (sharedUsersState.some(su => su.id === targetUserId)) {
         console.log('⚠️ [shareData] Already shared with this user');
         showAlert('Data access already granted to this user.');
         return;
@@ -760,8 +783,9 @@ export default function App() {
 
       console.log('✅ [shareData] Successfully wrote shared user document');
 
-      // Update local state
-      setSharedUsers(prev => [...prev, sharedUser]);
+      // onSnapshot in hook will auto-update sharedUsersState via the sync effect
+      // Remove from available dropdown immediately
+      setAvailableUsers(prev => prev.filter(u => u.id !== targetUserId));
       showAlert(`Data access granted to ${sharedUser.displayName || sharedUser.email}`);
       
       console.log('✅ [shareData] Data sharing completed successfully');
@@ -775,8 +799,21 @@ export default function App() {
     if (!user) return;
 
     try {
+      // Find the user info before removing so we can restore them to the available list
+      const removedUser = sharedUsersState.find(su => su.id === sharedUserId);
+
       await deleteDoc(doc(db, 'users', user.uid, 'shared_users', sharedUserId));
-      setSharedUsers(prev => prev.filter(su => su.id !== sharedUserId));
+
+      // onSnapshot in hook will auto-update sharedUsersState via the sync effect
+      // Add user back to available dropdown immediately
+      if (removedUser) {
+        setAvailableUsers(prev => {
+          const alreadyThere = prev.some(u => u.id === sharedUserId);
+          if (alreadyThere) return prev;
+          return [...prev, { id: removedUser.id, email: removedUser.email, displayName: removedUser.displayName }];
+        });
+      }
+
       showAlert('Shared access removed successfully.');
     } catch (error) {
       console.error('Error removing shared access:', error);
@@ -1178,11 +1215,30 @@ export default function App() {
             <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 mb-12">
           {/* Left Column: Match Details & Rewards */}
           <motion.div
+            ref={matchFormRef}
             className="lg:col-span-4 space-y-8"
             initial={{ opacity: 0, x: -40 }}
             animate={{ opacity: 1, x: 0 }}
             transition={{ duration: 0.6, ease: [0.22, 1, 0.36, 1], delay: 0.2 }}
           >
+            {/* Edit mode banner */}
+            <AnimatePresence>
+              {editingMatchId && (
+                <motion.div
+                  initial={{ opacity: 0, y: -12, scale: 0.97 }}
+                  animate={{ opacity: 1, y: 0, scale: 1 }}
+                  exit={{ opacity: 0, y: -12, scale: 0.97 }}
+                  transition={{ duration: 0.3, ease: [0.22, 1, 0.36, 1] }}
+                  className="flex items-center gap-3 px-4 py-3 rounded-2xl bg-amber-500/15 border border-amber-400/40 text-amber-400"
+                >
+                  <Edit2 className="w-4 h-4 shrink-0" />
+                  <div>
+                    <p className="text-xs font-black uppercase tracking-widest">Edit Mode Active</p>
+                    <p className="text-[11px] opacity-80">Update the fields below and click <strong>UPDATE MATCH</strong></p>
+                  </div>
+                </motion.div>
+              )}
+            </AnimatePresence>
             <section className="glass-panel p-8">
               <div className="flex items-center gap-3 mb-8">
                 <div className="p-2 bg-primary/10 rounded-lg">
@@ -1225,20 +1281,116 @@ export default function App() {
                 </div>
                 <div className="space-y-2">
                   <label className="text-[10px] font-black text-on-surface-variant uppercase tracking-widest">Match Date <span className="text-on-surface-variant/60">(Optional)</span></label>
-                  <div className="flex gap-2">
-                    <input
-                      type="date"
-                      value={matchDate}
-                      onChange={(e) => setMatchDate(e.target.value)}
-                      className="input-field flex-1"
-                    />
+                  <div className="relative" ref={calendarRef}>
+                    {/* Trigger button */}
                     <button
-                      onClick={() => setMatchDate(new Date().toISOString().slice(0,10))}
-                      className="px-3 py-3 bg-surface-bright hover:bg-surface-bright/80 rounded-xl border border-outline-variant transition-all text-xs font-bold text-on-surface-variant"
-                      title="Reset to today"
+                      type="button"
+                      onClick={() => {
+                        setCalendarViewDate(matchDate ? new Date(matchDate + 'T00:00:00') : new Date());
+                        setIsCalendarOpen(v => !v);
+                      }}
+                      className="w-full flex items-center justify-between px-4 py-3 input-field text-left"
                     >
-                      Today
+                      <span className={matchDate ? 'text-on-surface font-bold' : 'text-on-surface-variant'}>
+                        {matchDate
+                          ? new Date(matchDate + 'T00:00:00').toLocaleDateString('en-GB', { weekday: 'short', day: '2-digit', month: 'short', year: 'numeric' })
+                          : 'Select date'}
+                      </span>
+                      <div className="flex items-center gap-2">
+                        {matchDate && (
+                          <span
+                            role="button"
+                            onClick={(e) => { e.stopPropagation(); setMatchDate(new Date().toISOString().slice(0,10)); }}
+                            className="text-[10px] font-black text-primary uppercase tracking-wider hover:text-primary/70 transition-colors"
+                          >Today</span>
+                        )}
+                        <Calendar className="w-4 h-4 text-on-surface-variant" />
+                      </div>
                     </button>
+
+                    {/* Calendar Popup */}
+                    <AnimatePresence>
+                      {isCalendarOpen && (() => {
+                        const year = calendarViewDate.getFullYear();
+                        const month = calendarViewDate.getMonth();
+                        const firstDay = new Date(year, month, 1).getDay();
+                        const daysInMonth = new Date(year, month + 1, 0).getDate();
+                        const today = new Date().toISOString().slice(0, 10);
+                        const blanks = Array(firstDay).fill(null);
+                        const days = Array.from({ length: daysInMonth }, (_, i) => i + 1);
+                        const MONTHS = ['January','February','March','April','May','June','July','August','September','October','November','December'];
+                        const DAYS = ['Su','Mo','Tu','We','Th','Fr','Sa'];
+                        return (
+                          <motion.div
+                            initial={{ opacity: 0, y: -8, scale: 0.97 }}
+                            animate={{ opacity: 1, y: 0, scale: 1 }}
+                            exit={{ opacity: 0, y: -8, scale: 0.97 }}
+                            transition={{ duration: 0.2, ease: [0.22, 1, 0.36, 1] }}
+                            className="absolute z-50 top-full mt-2 left-0 right-0 glass-panel p-4 shadow-2xl border border-outline-variant rounded-2xl"
+                          >
+                            {/* Month navigation */}
+                            <div className="flex items-center justify-between mb-4">
+                              <motion.button
+                                whileHover={{ scale: 1.15 }} whileTap={{ scale: 0.9 }}
+                                type="button"
+                                onClick={() => setCalendarViewDate(new Date(year, month - 1, 1))}
+                                className="p-1.5 rounded-lg hover:bg-surface-bright transition-colors"
+                              >
+                                <ChevronLeft className="w-4 h-4" />
+                              </motion.button>
+                              <span className="text-sm font-black tracking-wide">{MONTHS[month]} {year}</span>
+                              <motion.button
+                                whileHover={{ scale: 1.15 }} whileTap={{ scale: 0.9 }}
+                                type="button"
+                                onClick={() => setCalendarViewDate(new Date(year, month + 1, 1))}
+                                className="p-1.5 rounded-lg hover:bg-surface-bright transition-colors"
+                              >
+                                <ChevronRight className="w-4 h-4" />
+                              </motion.button>
+                            </div>
+                            {/* Day headers */}
+                            <div className="grid grid-cols-7 mb-1">
+                              {DAYS.map(d => (
+                                <div key={d} className="text-center text-[10px] font-black text-on-surface-variant uppercase py-1">{d}</div>
+                              ))}
+                            </div>
+                            {/* Day cells */}
+                            <div className="grid grid-cols-7 gap-y-1">
+                              {blanks.map((_, i) => <div key={'b'+i} />)}
+                              {days.map(day => {
+                                const iso = `${year}-${String(month+1).padStart(2,'0')}-${String(day).padStart(2,'0')}`;
+                                const isSelected = matchDate === iso;
+                                const isToday = today === iso;
+                                return (
+                                  <motion.button
+                                    key={day}
+                                    type="button"
+                                    whileHover={{ scale: 1.15 }}
+                                    whileTap={{ scale: 0.9 }}
+                                    onClick={() => {
+                                      setMatchDate(iso);
+                                      setIsCalendarOpen(false);
+                                    }}
+                                    className={`relative mx-auto w-8 h-8 flex items-center justify-center rounded-full text-xs font-bold transition-all
+                                      ${ isSelected
+                                          ? 'bg-primary text-background shadow-lg shadow-primary/30'
+                                          : isToday
+                                          ? 'border border-primary text-primary'
+                                          : 'hover:bg-surface-bright text-on-surface'
+                                      }`}
+                                  >
+                                    {day}
+                                    {isToday && !isSelected && (
+                                      <span className="absolute bottom-0.5 left-1/2 -translate-x-1/2 w-1 h-1 rounded-full bg-primary" />
+                                    )}
+                                  </motion.button>
+                                );
+                              })}
+                            </div>
+                          </motion.div>
+                        );
+                      })()}
+                    </AnimatePresence>
                   </div>
                 </div>
                 <div className="space-y-2">
@@ -1723,7 +1875,7 @@ export default function App() {
                 </button>
               </div>
 
-              <div className="space-y-4 mb-8 max-h-[40vh] overflow-y-auto custom-scrollbar pr-2">
+              <div className={`grid grid-cols-2 gap-3 mb-6 max-h-[40vh] overflow-y-auto custom-scrollbar pr-2`}>
                 {players.map(p => (
                   <div key={p.id} className="flex items-center gap-3 p-3 glass-card">
                     <input 
@@ -2160,10 +2312,18 @@ export default function App() {
               {/* Current Shared Users */}
               <div className="mb-8">
                 <h3 className="text-lg font-bold font-display mb-4">Currently Shared With</h3>
-                {sharedUsers.length > 0 ? (
-                  <div className="space-y-3">
-                    {sharedUsers.map(sharedUser => (
-                      <div key={sharedUser.id} className="flex items-center justify-between p-3 glass-card">
+                {sharedUsersState.length > 0 ? (
+                  <div className="space-y-3 max-h-48 overflow-y-auto custom-scrollbar pr-1">
+                    <AnimatePresence initial={false}>
+                    {sharedUsersState.map(sharedUser => (
+                      <motion.div
+                        key={sharedUser.id}
+                        initial={{ opacity: 0, height: 0 }}
+                        animate={{ opacity: 1, height: 'auto' }}
+                        exit={{ opacity: 0, height: 0 }}
+                        transition={{ duration: 0.25 }}
+                        className="flex items-center justify-between p-3 glass-card"
+                      >
                         <div>
                           <div className="font-bold">{sharedUser.displayName || sharedUser.email}</div>
                           <div className="text-xs text-on-surface-variant">
@@ -2177,8 +2337,9 @@ export default function App() {
                         >
                           <X className="w-4 h-4" />
                         </button>
-                      </div>
+                      </motion.div>
                     ))}
+                    </AnimatePresence>
                   </div>
                 ) : (
                   <div className="text-center text-on-surface-variant py-8">

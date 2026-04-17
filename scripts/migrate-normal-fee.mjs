@@ -51,8 +51,8 @@ async function migrateMatches() {
         if (match.type === 'Normal' && match.entryFee === OLD_FEE) {
           const playerCount = match.predictions?.length || 0;
           const newTotalPool = NEW_FEE * playerCount;
-          const newPrizeWinner = Math.floor(newTotalPool * 0.8);
-          const newPrizeRunnerUp = Math.floor(newTotalPool * 0.2);
+          const newPrizeWinner = Math.floor(newTotalPool * 0.6);
+          const newPrizeRunnerUp = Math.floor(newTotalPool * 0.4);
 
           await updateDoc(doc(db, 'users', userId, 'seasons', seasonId, 'matches', matchDoc.id), {
             entryFee: NEW_FEE,

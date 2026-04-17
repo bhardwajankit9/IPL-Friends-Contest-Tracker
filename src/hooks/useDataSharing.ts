@@ -5,7 +5,7 @@
 
 import { useState, useEffect } from 'react';
 import { User } from 'firebase/auth';
-import { collection, getDocs, query, where } from 'firebase/firestore';
+import { collection, getDocs, onSnapshot } from 'firebase/firestore';
 import { db } from '../firebase';
 import { SharedUser } from '../types';
 
@@ -20,23 +20,25 @@ export function useDataSharing(user: User | null, dataOwner: User | null) {
       return;
     }
 
-    const loadSharingData = async () => {
-      try {
-        // Load shared users list
-        const sharedUsersQuery = query(collection(db, 'users', user.uid, 'shared_users'));
-        const sharedUsersSnapshot = await getDocs(sharedUsersQuery);
-        
+    // Real-time listener for shared_users so state is always fresh
+    const unsubscribe = onSnapshot(
+      collection(db, 'users', user.uid, 'shared_users'),
+      (snapshot) => {
         const sharedUsersList: SharedUser[] = [];
-        sharedUsersSnapshot.forEach((doc) => {
+        snapshot.forEach((doc) => {
           sharedUsersList.push(doc.data() as SharedUser);
         });
-        
         setSharedUsers(sharedUsersList);
+      },
+      (error) => {
+        console.error('Error listening to shared users:', error);
+      }
+    );
 
-        // Load available users for sharing
-        const allUsersSnapshot = await getDocs(collection(db, 'users'));
+    // Load all users once for the available-users dropdown
+    getDocs(collection(db, 'users'))
+      .then((allUsersSnapshot) => {
         const availableUsersList: Array<{id: string, email: string, displayName: string}> = [];
-        
         allUsersSnapshot.forEach((doc) => {
           const data = doc.data();
           console.log('Available user found:', doc.id, data.email, data.displayName);
@@ -48,15 +50,14 @@ export function useDataSharing(user: User | null, dataOwner: User | null) {
             });
           }
         });
-        
         console.log('Total available users for sharing:', availableUsersList.length);
         setAvailableUsers(availableUsersList);
-      } catch (error) {
-        console.error('Error loading sharing data:', error);
-      }
-    };
+      })
+      .catch((error) => {
+        console.error('Error loading available users:', error);
+      });
 
-    loadSharingData();
+    return () => unsubscribe();
   }, [user, dataOwner]);
 
   return { sharedUsers, setSharedUsers, availableUsers };

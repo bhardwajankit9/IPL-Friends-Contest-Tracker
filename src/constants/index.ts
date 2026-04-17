@@ -22,7 +22,7 @@ export const IPL_TEAMS = [
 
 export const MATCH_TYPES: { type: MatchType; fee: number }[] = [
   { type: 'Normal', fee: 40 },
-  { type: 'Qualifier', fee: 50 },
+  { type: 'Qualifier', fee: 100 },
   { type: 'Final', fee: 100 },
   { type: 'Custom', fee: 20 },
   { type: 'Tie', fee: 0 },
