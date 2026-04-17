@@ -647,6 +647,56 @@ export default function App() {
   // Export CSV using utility function
   const exportCSV = () => exportLeaderboardToCSV(leaderboard);
 
+  // One-time migration: update Normal matches from ₹20 → ₹40
+  const [isMigrating, setIsMigrating] = useState(false);
+  const [migrationDone, setMigrationDone] = useState(false);
+
+  const handleMigrateNormalFee = async () => {
+    if (!dataOwner) return;
+    showConfirm(
+      'This will update ALL Normal matches from ₹20 → ₹40 entry fee across all seasons. Run once only. Continue?',
+      async () => {
+        setIsMigrating(true);
+        let updated = 0;
+        try {
+          for (const season of SEASONS) {
+            const matchesSnap = await getDocs(
+              query(
+                collection(db, 'users', dataOwner.uid, 'seasons', season, 'matches'),
+                where('type', '==', 'Normal'),
+                where('entryFee', '==', 20)
+              )
+            );
+            for (const matchDoc of matchesSnap.docs) {
+              const m = matchDoc.data();
+              const playerCount = m.predictions?.length || 0;
+              const newPool = 40 * playerCount;
+              await setDoc(
+                doc(db, 'users', dataOwner.uid, 'seasons', season, 'matches', matchDoc.id),
+                {
+                  ...m,
+                  entryFee: 40,
+                  totalPool: newPool,
+                  prizeWinner: m.winnerId ? Math.floor(newPool * 0.8) : 0,
+                  prizeRunnerUp: m.runnerUpId ? Math.floor(newPool * 0.2) : 0,
+                }
+              );
+              updated++;
+            }
+          }
+          setMigrationDone(true);
+          showAlert(`✅ Migration complete! Updated ${updated} Normal match(es) to ₹40 entry fee.`);
+        } catch (error) {
+          showAlert('Migration failed. Check console for details.');
+          console.error('Migration error:', error);
+        } finally {
+          setIsMigrating(false);
+        }
+      },
+      'Migrate Match Fees'
+    );
+  };
+
   // Share match using utility function  
   const handleShareMatch = (match: Match) => shareMatchToWhatsApp(match, players);
 
@@ -897,6 +947,17 @@ export default function App() {
                     <RotateCcw className="w-5 h-5" />
                   )}
                 </button>
+                {!migrationDone && (
+                  <button
+                    onClick={handleMigrateNormalFee}
+                    disabled={isMigrating}
+                    className="px-3 py-1.5 text-xs font-bold rounded-lg bg-amber-500/20 text-amber-400 hover:bg-amber-500/30 transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-1.5"
+                    title="One-time: Update Normal match fees ₹20 → ₹40"
+                  >
+                    {isMigrating ? <LoadingSpinner size="w-3 h-3" /> : '⚡'}
+                    {isMigrating ? 'Migrating...' : 'Fix Fees'}
+                  </button>
+                )}
               </>
             ) : (
               <button 
